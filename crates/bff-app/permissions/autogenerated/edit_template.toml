@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-edit-template"
+description = "Enables the edit_template command without any pre-configured scope."
+commands.allow = ["edit_template"]
+
+[[permission]]
+identifier = "deny-edit-template"
+description = "Denies the edit_template command without any pre-configured scope."
+commands.deny = ["edit_template"]

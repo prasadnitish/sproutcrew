@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-read-google-doc"
+description = "Enables the read_google_doc command without any pre-configured scope."
+commands.allow = ["read_google_doc"]
+
+[[permission]]
+identifier = "deny-read-google-doc"
+description = "Denies the read_google_doc command without any pre-configured scope."
+commands.deny = ["read_google_doc"]

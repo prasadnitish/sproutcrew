@@ -1,0 +1,202 @@
+[
+  {
+    "method": "configWarning",
+    "params": {}
+  },
+  {
+    "method": "remoteControl/status/changed",
+    "params": {
+      "status": "disabled"
+    }
+  },
+  {
+    "method": "account/updated",
+    "params": {
+      "authMode": "chatgpt",
+      "planType": "prolite"
+    }
+  },
+  {
+    "method": "thread/started",
+    "params": {}
+  },
+  {
+    "method": "warning",
+    "params": {
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a"
+    }
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a"
+    }
+  },
+  {
+    "method": "turn/started",
+    "params": {
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a",
+      "turn": {
+        "id": "01a194ea-8776-7d92-bdf1-44f966e35a4e",
+        "status": "inProgress"
+      }
+    }
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "id": "01a194ea-8b8b-7de1-b653-af603a6872b4",
+        "type": "userMessage"
+      },
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a",
+      "turnId": "01a194ea-8776-7d92-bdf1-44f966e35a4e"
+    }
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "id": "01a194ea-8b8b-7de1-b653-af603a6872b4",
+        "type": "userMessage"
+      },
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a",
+      "turnId": "01a194ea-8776-7d92-bdf1-44f966e35a4e"
+    }
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "id": "[token]",
+        "type": "reasoning"
+      },
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a",
+      "turnId": "01a194ea-8776-7d92-bdf1-44f966e35a4e"
+    }
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "id": "[token]",
+        "type": "reasoning"
+      },
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a",
+      "turnId": "01a194ea-8776-7d92-bdf1-44f966e35a4e"
+    }
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "id": "[token]",
+        "type": "reasoning"
+      },
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a",
+      "turnId": "01a194ea-8776-7d92-bdf1-44f966e35a4e"
+    }
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "id": "[token]",
+        "type": "reasoning"
+      },
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a",
+      "turnId": "01a194ea-8776-7d92-bdf1-44f966e35a4e"
+    }
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "id": "[token]",
+        "phase": "final_answer",
+        "type": "agentMessage"
+      },
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a",
+      "turnId": "01a194ea-8776-7d92-bdf1-44f966e35a4e"
+    }
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "id": "[token]",
+        "phase": "final_answer",
+        "type": "agentMessage"
+      },
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a",
+      "turnId": "01a194ea-8776-7d92-bdf1-44f966e35a4e"
+    }
+  },
+  {
+    "method": "thread/tokenUsage/updated",
+    "params": {
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a",
+      "tokenUsage": {
+        "last": {
+          "cacheWriteInputTokens": 0,
+          "cachedInputTokens": 0,
+          "inputTokens": 9697,
+          "outputTokens": 730,
+          "reasoningOutputTokens": 690,
+          "totalTokens": 10427
+        },
+        "modelContextWindow": 475000,
+        "total": {
+          "cacheWriteInputTokens": 0,
+          "cachedInputTokens": 0,
+          "inputTokens": 9697,
+          "outputTokens": 730,
+          "reasoningOutputTokens": 690,
+          "totalTokens": 10427
+        }
+      },
+      "turnId": "01a194ea-8776-7d92-bdf1-44f966e35a4e"
+    }
+  },
+  {
+    "method": "account/rateLimits/updated",
+    "params": {
+      "rateLimits": {
+        "credits": {
+          "balance": "1250.0000000000",
+          "hasCredits": true,
+          "unlimited": false
+        },
+        "individualLimit": null,
+        "limitId": "codex",
+        "limitName": null,
+        "normalModelSlug": null,
+        "planType": "prolite",
+        "primary": {
+          "resetsAt": 1794021146,
+          "usedPercent": 2,
+          "windowDurationMins": 10080
+        },
+        "rateLimitReachedType": null,
+        "secondary": null,
+        "spendControlReached": null
+      }
+    }
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a"
+    }
+  },
+  {
+    "method": "turn/completed",
+    "params": {
+      "threadId": "01a194ea-874d-7b92-9fc1-c0f3d3b10e0a",
+      "turn": {
+        "id": "01a194ea-8776-7d92-bdf1-44f966e35a4e",
+        "status": "completed"
+      }
+    }
+  }
+]

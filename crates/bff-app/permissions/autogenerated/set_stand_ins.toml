@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-stand-ins"
+description = "Enables the set_stand_ins command without any pre-configured scope."
+commands.allow = ["set_stand_ins"]
+
+[[permission]]
+identifier = "deny-set-stand-ins"
+description = "Denies the set_stand_ins command without any pre-configured scope."
+commands.deny = ["set_stand_ins"]

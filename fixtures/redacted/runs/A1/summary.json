@@ -1,0 +1,247 @@
+{
+  "checks": [
+    {
+      "check": "system/init seen",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "no policy violations",
+      "detail": "[]",
+      "passed": true
+    },
+    {
+      "check": "apiKeySource is none",
+      "detail": "Some(\"none\")",
+      "passed": true
+    },
+    {
+      "check": "model as requested",
+      "detail": "claude-haiku-5-5",
+      "passed": true
+    },
+    {
+      "check": "tool list is exactly the allowlist",
+      "detail": "[\"Glob\", \"Grep\", \"Read\"]",
+      "passed": true
+    },
+    {
+      "check": "no MCP servers and no error arrays",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "run finished with a success result",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "scenario ran to completion",
+      "detail": "",
+      "passed": true
+    }
+  ],
+  "claude_window_deltas": [
+    {
+      "after": 5.0,
+      "before": 5.0,
+      "delta": 0.0,
+      "window": "session"
+    },
+    {
+      "after": 19.0,
+      "before": 19.0,
+      "delta": 0.0,
+      "window": "week (all models)"
+    },
+    {
+      "after": 0.0,
+      "before": 0.0,
+      "delta": 0.0,
+      "window": "week (Fable)"
+    }
+  ],
+  "effort": "low",
+  "elapsed_seconds": 11.154110958,
+  "evidence": {
+    "bad_lines": 0,
+    "ended_by": null,
+    "event_kinds": {
+      "assistant/": 1,
+      "rate_limit_event/": 1,
+      "result/success": 1,
+      "stream_event/": 6,
+      "system/init": 1,
+      "system/status": 1
+    },
+    "exit_code": 0,
+    "init": {
+      "api_key_source": "none",
+      "mcp_server_errors": 0,
+      "mcp_servers": [],
+      "model": "claude-haiku-5-5",
+      "permission_mode": "dontAsk",
+      "plugin_errors": 0,
+      "tools": [
+        "Glob",
+        "Grep",
+        "Read"
+      ],
+      "version": "2.1.316"
+    },
+    "init_before_prompt": false,
+    "interrupted_by_harness": false,
+    "process": {
+      "pgid": 82936,
+      "pid": 82936,
+      "start_time": "Sat Oct 31 18:38:34 2026"
+    },
+    "result": {
+      "duration_ms": 780,
+      "has_structured_output": false,
+      "is_error": false,
+      "num_turns": 1,
+      "permission_denials": [],
+      "stop_reason": "end_turn",
+      "subtype": "success"
+    },
+    "stderr": {
+      "first_words": [],
+      "lines": 0
+    },
+    "timed_out": false,
+    "tool_results": [],
+    "tools_used": [],
+    "usage": {
+      "cost_status": "Estimated",
+      "cost_usd_estimated": 0.0004949199999999999,
+      "per_model": {
+        "claude-haiku-5-5": {
+          "cache_creation": 2302,
+          "cache_read": 3232,
+          "input": 2,
+          "output": 4
+        }
+      },
+      "result_distrusted": false,
+      "tokens": {
+        "cache_creation": 2302,
+        "cache_read": 3232,
+        "input": 2,
+        "output": 4
+      },
+      "tokens_status": "Reported"
+    },
+    "violations": []
+  },
+  "id": "A1",
+  "model": "claude-haiku-5-5",
+  "other_clients": {
+    "chatgpt_codex_app_processes": 0,
+    "claude_cli_processes": 5,
+    "claude_desktop_processes": 31,
+    "codex_cli_processes_outside_chatgpt_app": 0,
+    "codexbar": 1
+  },
+  "pins": {
+    "claude": "2.1.316",
+    "codex": "0.166.0"
+  },
+  "route": "Claude",
+  "started_at": 1793497114,
+  "status": "Done",
+  "stop": null,
+  "usage_after": {
+    "claude": {
+      "at": 1793497126,
+      "auth_method": "claude.ai",
+      "usage_call_tokens": 0,
+      "windows": [
+        {
+          "label": "session",
+          "percent": 5.0,
+          "resets": "Oct 31 at 11:10pm (America/Los_Angeles)"
+        },
+        {
+          "label": "week (all models)",
+          "percent": 19.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        },
+        {
+          "label": "week (Fable)",
+          "percent": 0.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        }
+      ]
+    },
+    "codex": {
+      "account": {
+        "kind": "chatgpt",
+        "plan_type": "prolite"
+      },
+      "account_hash": "9df5fe5ac52e",
+      "at": 1793497127,
+      "balance": "1250.0000000000",
+      "balance_state": "known 1250",
+      "buckets": [
+        {
+          "bucket": "codex",
+          "primary": {
+            "resets_at": 1794021146,
+            "used_percent": 2,
+            "window_mins": 10080
+          },
+          "secondary": null
+        }
+      ],
+      "ordinary_usage_allowed": true
+    }
+  },
+  "usage_before": {
+    "claude": {
+      "at": 1793497112,
+      "auth_method": "claude.ai",
+      "usage_call_tokens": 0,
+      "windows": [
+        {
+          "label": "session",
+          "percent": 5.0,
+          "resets": "Oct 31 at 11:10pm (America/Los_Angeles)"
+        },
+        {
+          "label": "week (all models)",
+          "percent": 19.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        },
+        {
+          "label": "week (Fable)",
+          "percent": 0.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        }
+      ]
+    },
+    "codex": {
+      "account": {
+        "kind": "chatgpt",
+        "plan_type": "prolite"
+      },
+      "account_hash": "9df5fe5ac52e",
+      "at": 1793497114,
+      "balance": "1250.0000000000",
+      "balance_state": "known 1250",
+      "buckets": [
+        {
+          "bucket": "codex",
+          "primary": {
+            "resets_at": 1794021146,
+            "used_percent": 2,
+            "window_mins": 10080
+          },
+          "secondary": null
+        }
+      ],
+      "ordinary_usage_allowed": true
+    }
+  },
+  "what": "contract start, init assertions, init-before-prompt test"
+}

@@ -1,0 +1,112 @@
+{
+  "artifacts": [
+    {
+      "file": "draft-f4e246ff.md",
+      "from_task": "t1",
+      "name": "draft",
+      "sha256": "f4e246ff7faba529e779cc7ee2c028d18e52c22a48a23f2c7b09830378f7fe1e"
+    }
+  ],
+  "budget": {
+    "available": 268307,
+    "limit": 300000,
+    "paused": false,
+    "spent": 31693,
+    "unknown_charges": 0
+  },
+  "claude_after": {
+    "login": "claude.ai",
+    "windows": [
+      {
+        "used_percent": 25.0,
+        "window": "session"
+      },
+      {
+        "used_percent": 22.0,
+        "window": "week (all models)"
+      },
+      {
+        "used_percent": 0.0,
+        "window": "week (Fable)"
+      }
+    ]
+  },
+  "claude_before": {
+    "login": "claude.ai",
+    "windows": [
+      {
+        "used_percent": 25.0,
+        "window": "session"
+      },
+      {
+        "used_percent": 22.0,
+        "window": "week (all models)"
+      },
+      {
+        "used_percent": 0.0,
+        "window": "week (Fable)"
+      }
+    ]
+  },
+  "codex_after": {
+    "balance": "1250",
+    "windows": [
+      {
+        "bucket": "codex",
+        "used_percent": 2,
+        "window_mins": 10080
+      }
+    ]
+  },
+  "codex_before": {
+    "balance": "1250",
+    "windows": [
+      {
+        "bucket": "codex",
+        "used_percent": 2,
+        "window_mins": 10080
+      }
+    ]
+  },
+  "completed_without_error": true,
+  "config_files_unchanged": false,
+  "config_hashes_after": {
+    "claude_settings_json": "19f20cf16590ad8bcaf1391388b1e98223cf6ccd150fdec4e6add4ef10bdf6c6",
+    "codex_config_toml": "ff648764c9c2deb51afedcffdd23acdffdd16ecce8de8846ab98573ee05e1a8f"
+  },
+  "config_hashes_before": {
+    "claude_settings_json": "19f20cf16590ad8bcaf1391388b1e98223cf6ccd150fdec4e6add4ef10bdf6c6",
+    "codex_config_toml": "af1fff3e1739422d1ba073ec4d7d594ee0e589fdbbf609329e42f5cfca438fcf"
+  },
+  "engine": "live",
+  "latest_artifact_chars": 149,
+  "latest_artifact_head": "# Team Note: License Cost\n\nA pilot is buying 4 licenses at $5 each per month.\n\nMonthly total: **$25**\n\nCalculation: 4 licenses × $5 = $25 per month.\n",
+  "meters": {
+    "api_dollars": "unknown",
+    "plan_window": "claude 25%, codex 2%",
+    "tokens": "31693"
+  },
+  "review": {
+    "draft": {
+      "findings": [],
+      "head": "f4e246ff7faba529e779cc7ee2c028d18e52c22a48a23f2c7b09830378f7fe1e",
+      "owner": "author",
+      "reviewers": {
+        "critic": "valid"
+      },
+      "version": 1
+    }
+  },
+  "steps": [
+    {
+      "plan_window": "claude 25%",
+      "step": "t1",
+      "tokens": "13717"
+    },
+    {
+      "plan_window": "codex 2%",
+      "step": "t2",
+      "tokens": "17976"
+    }
+  ]
+}

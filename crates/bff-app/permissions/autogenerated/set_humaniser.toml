@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-humaniser"
+description = "Enables the set_humaniser command without any pre-configured scope."
+commands.allow = ["set_humaniser"]
+
+[[permission]]
+identifier = "deny-set-humaniser"
+description = "Denies the set_humaniser command without any pre-configured scope."
+commands.deny = ["set_humaniser"]

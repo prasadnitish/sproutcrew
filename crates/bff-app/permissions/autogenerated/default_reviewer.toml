@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-default-reviewer"
+description = "Enables the default_reviewer command without any pre-configured scope."
+commands.allow = ["default_reviewer"]
+
+[[permission]]
+identifier = "deny-default-reviewer"
+description = "Denies the default_reviewer command without any pre-configured scope."
+commands.deny = ["default_reviewer"]

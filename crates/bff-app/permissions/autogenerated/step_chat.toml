@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-step-chat"
+description = "Enables the step_chat command without any pre-configured scope."
+commands.allow = ["step_chat"]
+
+[[permission]]
+identifier = "deny-step-chat"
+description = "Denies the step_chat command without any pre-configured scope."
+commands.deny = ["step_chat"]

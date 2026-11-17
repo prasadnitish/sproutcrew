@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-run-stage"
+description = "Enables the run_stage command without any pre-configured scope."
+commands.allow = ["run_stage"]
+
+[[permission]]
+identifier = "deny-run-stage"
+description = "Denies the run_stage command without any pre-configured scope."
+commands.deny = ["run_stage"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-recommended-skills"
+description = "Enables the recommended_skills command without any pre-configured scope."
+commands.allow = ["recommended_skills"]
+
+[[permission]]
+identifier = "deny-recommended-skills"
+description = "Denies the recommended_skills command without any pre-configured scope."
+commands.deny = ["recommended_skills"]

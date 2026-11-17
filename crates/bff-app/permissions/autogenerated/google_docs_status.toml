@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-google-docs-status"
+description = "Enables the google_docs_status command without any pre-configured scope."
+commands.allow = ["google_docs_status"]
+
+[[permission]]
+identifier = "deny-google-docs-status"
+description = "Denies the google_docs_status command without any pre-configured scope."
+commands.deny = ["google_docs_status"]

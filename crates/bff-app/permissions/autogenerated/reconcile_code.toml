@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reconcile-code"
+description = "Enables the reconcile_code command without any pre-configured scope."
+commands.allow = ["reconcile_code"]
+
+[[permission]]
+identifier = "deny-reconcile-code"
+description = "Denies the reconcile_code command without any pre-configured scope."
+commands.deny = ["reconcile_code"]

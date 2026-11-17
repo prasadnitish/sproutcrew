@@ -1,0 +1,31 @@
+{
+  "at": 1793498799,
+  "check": "N4b",
+  "formats_tried": [
+    {
+      "exit_code": 1,
+      "format": "kebab_snake_urls",
+      "inside_write_exists": false,
+      "stderr": [
+        "Error: invalid --sandbox-state-json value: missing field `permissionProfile` at line 1 column 294"
+      ]
+    },
+    {
+      "exit_code": 1,
+      "format": "camel_urls",
+      "inside_write_exists": false,
+      "stderr": [
+        "Error: invalid --sandbox-state-json value: missing field `permissionProfile` at line 1 column 286"
+      ]
+    },
+    {
+      "exit_code": 1,
+      "format": "kebab_snake_url_roots_plain_cwd",
+      "inside_write_exists": false,
+      "stderr": [
+        "Error: invalid --sandbox-state-json value: invalid URI: relative URL without a base at line 1 column 76"
+      ]
+    }
+  ],
+  "result": "neither sandbox-state format was accepted; the section 12 policy could not be checked offline"
+}

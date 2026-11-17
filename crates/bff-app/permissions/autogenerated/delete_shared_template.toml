@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-delete-shared-template"
+description = "Enables the delete_shared_template command without any pre-configured scope."
+commands.allow = ["delete_shared_template"]
+
+[[permission]]
+identifier = "deny-delete-shared-template"
+description = "Denies the delete_shared_template command without any pre-configured scope."
+commands.deny = ["delete_shared_template"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-source-role"
+description = "Enables the set_source_role command without any pre-configured scope."
+commands.allow = ["set_source_role"]
+
+[[permission]]
+identifier = "deny-set-source-role"
+description = "Denies the set_source_role command without any pre-configured scope."
+commands.deny = ["set_source_role"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-discover-tools"
+description = "Enables the discover_tools command without any pre-configured scope."
+commands.allow = ["discover_tools"]
+
+[[permission]]
+identifier = "deny-discover-tools"
+description = "Denies the discover_tools command without any pre-configured scope."
+commands.deny = ["discover_tools"]

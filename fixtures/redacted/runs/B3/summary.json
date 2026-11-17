@@ -1,0 +1,328 @@
+{
+  "checks": [
+    {
+      "check": "no delegation, web search, MCP, dynamic tool, or hook activity",
+      "detail": "[]",
+      "passed": true
+    },
+    {
+      "check": "nothing is left in the server's process group after shutdown",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "turn completed",
+      "detail": "\"completed\"",
+      "passed": true
+    },
+    {
+      "check": "in-folder write succeeds",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "sibling_task_folder: no file created",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "project_root: no file created",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "task_tmpdir: no file created",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "slash_tmp: no file created",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "symlink_escape: no file created",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "scenario ran to completion",
+      "detail": "",
+      "passed": true
+    }
+  ],
+  "claude_window_deltas": [
+    {
+      "after": 8.0,
+      "before": 8.0,
+      "delta": 0.0,
+      "window": "session"
+    },
+    {
+      "after": 20.0,
+      "before": 20.0,
+      "delta": 0.0,
+      "window": "week (all models)"
+    },
+    {
+      "after": 0.0,
+      "before": 0.0,
+      "delta": 0.0,
+      "window": "week (Fable)"
+    }
+  ],
+  "effort": "low",
+  "elapsed_seconds": 12.054816042,
+  "evidence": {
+    "after_shutdown": {
+      "group_members_left": 0,
+      "stderr_lines": 2
+    },
+    "descendants_while_running": {
+      "escaped_group": 1,
+      "group_members": 1
+    },
+    "elapsed_ms": 10753,
+    "extra": {
+      "probes": [
+        {
+          "commands": [
+            {
+              "exit_code": 0,
+              "status": "completed"
+            }
+          ],
+          "exists_after": true,
+          "expected_write": true,
+          "target": "inside_task_folder"
+        },
+        {
+          "commands": [],
+          "exists_after": false,
+          "expected_write": false,
+          "target": "sibling_task_folder"
+        },
+        {
+          "commands": [],
+          "exists_after": false,
+          "expected_write": false,
+          "target": "project_root"
+        },
+        {
+          "commands": [],
+          "exists_after": false,
+          "expected_write": false,
+          "target": "task_tmpdir"
+        },
+        {
+          "commands": [],
+          "exists_after": false,
+          "expected_write": false,
+          "target": "slash_tmp"
+        },
+        {
+          "commands": [],
+          "exists_after": false,
+          "expected_write": false,
+          "target": "symlink_escape"
+        }
+      ],
+      "tree_changes": [
+        "Added(\"proj/tasks/t1/inside.txt\")"
+      ]
+    },
+    "interrupt_ack_ms": null,
+    "interrupted_by_harness": false,
+    "item_kinds": {
+      "agentMessage": 1,
+      "commandExecution": 1,
+      "userMessage": 1
+    },
+    "items": [
+      {
+        "command": null,
+        "exit_code": null,
+        "kind": "userMessage",
+        "phase": null,
+        "status": null,
+        "text_chars": null,
+        "text_sha256": null
+      },
+      {
+        "command": "/bin/zsh -lc 'printf probe > ~/Library/Caches/bff-m0/runs/B3/proj/tasks/t1/inside.txt'",
+        "exit_code": 0,
+        "kind": "commandExecution",
+        "phase": null,
+        "status": "completed",
+        "text_chars": null,
+        "text_sha256": null
+      },
+      {
+        "command": null,
+        "exit_code": null,
+        "kind": "agentMessage",
+        "phase": "final_answer",
+        "status": null,
+        "text_chars": 4,
+        "text_sha256": "a4c3ed04a95a3da14a9d235c83d868bed7c0f45cf7f3faa751ee8f50598d2211"
+      }
+    ],
+    "methods": {
+      "account/rateLimits/updated": 7,
+      "account/updated": 1,
+      "configWarning": 1,
+      "item/agentMessage/delta": 1,
+      "item/completed": 3,
+      "item/started": 3,
+      "remoteControl/status/changed": 1,
+      "thread/started": 1,
+      "thread/status/changed": 2,
+      "thread/tokenUsage/updated": 7,
+      "turn/completed": 1,
+      "turn/started": 1,
+      "warning": 1
+    },
+    "model_split_uncertain": false,
+    "parse_errors": [],
+    "server_requests_refused": [],
+    "status": "completed",
+    "terminal_ms": 10348,
+    "thread": {
+      "account": {
+        "kind": "chatgpt",
+        "plan_type": "prolite"
+      },
+      "approval_policy": "never",
+      "disabled_plugin_ids_count": 0,
+      "instruction_sources": [
+        "~/.codex/AGENTS.md"
+      ],
+      "mcp_servers_disabled_by_override": 13,
+      "model": "gpt-6-luna",
+      "model_provider": "openai",
+      "reasoning_effort": "xhigh",
+      "sandbox": "workspaceWrite",
+      "service_tier": "default"
+    },
+    "timed_out": false,
+    "tokens": {
+      "cached_input": 53120,
+      "input": 65991,
+      "output": 483,
+      "reasoning_output": 0,
+      "total": 66474
+    },
+    "tokens_status": "Reported (cumulative total minus baseline)",
+    "violations": []
+  },
+  "id": "B3",
+  "model": "gpt-6-luna",
+  "other_clients": {
+    "chatgpt_codex_app_processes": 0,
+    "claude_cli_processes": 5,
+    "claude_desktop_processes": 31,
+    "codex_cli_processes_outside_chatgpt_app": 0,
+    "codexbar": 1
+  },
+  "pins": {
+    "claude": "2.1.316",
+    "codex": "0.166.0"
+  },
+  "route": "Codex",
+  "started_at": 1793498062,
+  "status": "Done",
+  "stop": null,
+  "usage_after": {
+    "claude": {
+      "at": 1793498075,
+      "auth_method": "claude.ai",
+      "usage_call_tokens": 0,
+      "windows": [
+        {
+          "label": "session",
+          "percent": 8.0,
+          "resets": "Oct 31 at 11:10pm (America/Los_Angeles)"
+        },
+        {
+          "label": "week (all models)",
+          "percent": 20.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        },
+        {
+          "label": "week (Fable)",
+          "percent": 0.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        }
+      ]
+    },
+    "codex": {
+      "account": {
+        "kind": "chatgpt",
+        "plan_type": "prolite"
+      },
+      "account_hash": "9df5fe5ac52e",
+      "at": 1793498076,
+      "balance": "1250.0000000000",
+      "balance_state": "known 1250",
+      "buckets": [
+        {
+          "bucket": "codex",
+          "primary": {
+            "resets_at": 1794021146,
+            "used_percent": 2,
+            "window_mins": 10080
+          },
+          "secondary": null
+        }
+      ],
+      "ordinary_usage_allowed": true
+    }
+  },
+  "usage_before": {
+    "claude": {
+      "at": 1793498061,
+      "auth_method": "claude.ai",
+      "usage_call_tokens": 0,
+      "windows": [
+        {
+          "label": "session",
+          "percent": 8.0,
+          "resets": "Oct 31 at 11:10pm (America/Los_Angeles)"
+        },
+        {
+          "label": "week (all models)",
+          "percent": 20.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        },
+        {
+          "label": "week (Fable)",
+          "percent": 0.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        }
+      ]
+    },
+    "codex": {
+      "account": {
+        "kind": "chatgpt",
+        "plan_type": "prolite"
+      },
+      "account_hash": "9df5fe5ac52e",
+      "at": 1793498062,
+      "balance": "1250.0000000000",
+      "balance_state": "known 1250",
+      "buckets": [
+        {
+          "bucket": "codex",
+          "primary": {
+            "resets_at": 1794021146,
+            "used_percent": 2,
+            "window_mins": 10080
+          },
+          "secondary": null
+        }
+      ],
+      "ordinary_usage_allowed": true
+    }
+  },
+  "what": "write confinement under workspaceWrite"
+}

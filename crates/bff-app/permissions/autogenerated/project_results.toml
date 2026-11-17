@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-project-results"
+description = "Enables the project_results command without any pre-configured scope."
+commands.allow = ["project_results"]
+
+[[permission]]
+identifier = "deny-project-results"
+description = "Denies the project_results command without any pre-configured scope."
+commands.deny = ["project_results"]

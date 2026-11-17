@@ -1,0 +1,74 @@
+{
+  "at": 1793495465,
+  "auth_status": {
+    "authMethod": "claude.ai",
+    "exit_code": 0,
+    "keys": [
+      "analyticsDisabled",
+      "apiProvider",
+      "authMethod",
+      "configDirectory",
+      "email",
+      "loggedIn",
+      "orgId",
+      "orgName",
+      "projectsDirectory",
+      "subscriptionType"
+    ],
+    "subscriptionType": "max"
+  },
+  "check": "N3",
+  "usage_call": {
+    "bad_lines": 0,
+    "cost_status": "Estimated",
+    "cost_usd": 0.0,
+    "event_kinds": {
+      "assistant/": 1,
+      "result/success": 1,
+      "system/init": 1
+    },
+    "exit_code": 0,
+    "flags_accepted": true,
+    "init": {
+      "api_key_source": "none",
+      "mcp_server_errors": 0,
+      "mcp_servers": 0,
+      "model": "claude-haiku-5-5",
+      "permission_mode": "default",
+      "plugin_errors": 0,
+      "tools": [],
+      "version": "2.1.316"
+    },
+    "stderr_first_words": [],
+    "stderr_lines": [],
+    "timed_out": false,
+    "tokens": {
+      "cache_creation": 0,
+      "cache_read": 0,
+      "input": 0,
+      "output": 0
+    },
+    "tokens_status": "Reported",
+    "violations": []
+  },
+  "usage_reading": {
+    "gate": "Ok(())",
+    "windows": [
+      {
+        "label": "session",
+        "percent": 0.0,
+        "resets": "Oct 31 at 11:10pm (America/Los_Angeles)"
+      },
+      {
+        "label": "week (all models)",
+        "percent": 19.0,
+        "resets": "Nov 3 at 6am (America/Los_Angeles)"
+      },
+      {
+        "label": "week (Fable)",
+        "percent": 0.0,
+        "resets": "Nov 3 at 6am (America/Los_Angeles)"
+      }
+    ]
+  }
+}

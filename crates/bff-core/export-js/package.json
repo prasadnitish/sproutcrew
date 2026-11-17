@@ -1,0 +1,11 @@
+{
+  "name": "sproutcrew-office-export",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "pptxgenjs": "4.0.1"
+  },
+  "overrides": {
+    "image-size": "2.1.0"
+  }
+}

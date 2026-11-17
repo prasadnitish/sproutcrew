@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-connect-google-docs"
+description = "Enables the connect_google_docs command without any pre-configured scope."
+commands.allow = ["connect_google_docs"]
+
+[[permission]]
+identifier = "deny-connect-google-docs"
+description = "Denies the connect_google_docs command without any pre-configured scope."
+commands.deny = ["connect_google_docs"]

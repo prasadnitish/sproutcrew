@@ -1,0 +1,69 @@
+{
+  "all_asserted_as_expected": true,
+  "at": 1793496082,
+  "check": "N4",
+  "note": "Command sandbox only. File tools and MCP are not covered. :workspace is not the section 12 policy, so tmp exclusion is tested in B3.",
+  "probes": [
+    {
+      "as_expected": true,
+      "exit_code": 0,
+      "expected_write": true,
+      "file_exists_after": true,
+      "probe": "inside_task_folder",
+      "profile": ":workspace"
+    },
+    {
+      "as_expected": true,
+      "exit_code": 1,
+      "expected_write": false,
+      "file_exists_after": false,
+      "probe": "sibling_task_folder",
+      "profile": ":workspace"
+    },
+    {
+      "as_expected": true,
+      "exit_code": 1,
+      "expected_write": false,
+      "file_exists_after": false,
+      "probe": "project_root",
+      "profile": ":workspace"
+    },
+    {
+      "as_expected": null,
+      "exit_code": 0,
+      "expected_write": null,
+      "file_exists_after": true,
+      "probe": "task_tmpdir",
+      "profile": ":workspace"
+    },
+    {
+      "as_expected": null,
+      "exit_code": 0,
+      "expected_write": null,
+      "file_exists_after": true,
+      "probe": "slash_tmp",
+      "profile": ":workspace"
+    },
+    {
+      "as_expected": true,
+      "exit_code": 1,
+      "expected_write": false,
+      "file_exists_after": false,
+      "probe": "symlink_escape",
+      "profile": ":workspace"
+    },
+    {
+      "as_expected": true,
+      "exit_code": 1,
+      "expected_write": false,
+      "file_exists_after": false,
+      "probe": "read_only_profile_inside_write",
+      "profile": ":read-only"
+    }
+  ],
+  "profile_used": ":workspace",
+  "sibling_read_allowed": true,
+  "tree_changes": [
+    "Added(\"tasks/t1/inside.txt\")"
+  ]
+}

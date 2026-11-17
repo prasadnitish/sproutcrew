@@ -1,0 +1,269 @@
+{
+  "checks": [
+    {
+      "check": "no policy violations",
+      "detail": "[]",
+      "passed": true
+    },
+    {
+      "check": "run finished with a success result",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "the review validates against the schema",
+      "detail": "Some([])",
+      "passed": true
+    },
+    {
+      "check": "the review names the version it reviewed",
+      "detail": "reviewed_sha256 must equal the artifact hash",
+      "passed": true
+    },
+    {
+      "check": "the artifact is unchanged by the review",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "the seeded error was found (mechanism case, not a quality claim)",
+      "detail": "findings: 1",
+      "passed": true
+    },
+    {
+      "check": "scenario ran to completion",
+      "detail": "",
+      "passed": true
+    }
+  ],
+  "claude_window_deltas": [
+    {
+      "after": 9.0,
+      "before": 9.0,
+      "delta": 0.0,
+      "window": "session"
+    },
+    {
+      "after": 20.0,
+      "before": 20.0,
+      "delta": 0.0,
+      "window": "week (all models)"
+    },
+    {
+      "after": 0.0,
+      "before": 0.0,
+      "delta": 0.0,
+      "window": "week (Fable)"
+    }
+  ],
+  "effort": "high",
+  "elapsed_seconds": 8.173166375,
+  "evidence": {
+    "bad_lines": 0,
+    "ended_by": null,
+    "event_kinds": {
+      "assistant/": 3,
+      "rate_limit_event/": 1,
+      "result/success": 1,
+      "stream_event/": 86,
+      "system/init": 1,
+      "system/status": 2,
+      "system/thinking_tokens": 3,
+      "user/": 2
+    },
+    "exit_code": 0,
+    "init": {
+      "api_key_source": "none",
+      "mcp_server_errors": 0,
+      "mcp_servers": [],
+      "model": "claude-sonnet-5-5",
+      "permission_mode": "dontAsk",
+      "plugin_errors": 0,
+      "tools": [
+        "Glob",
+        "Grep",
+        "Read",
+        "StructuredOutput"
+      ],
+      "version": "2.1.316"
+    },
+    "init_before_prompt": null,
+    "interrupted_by_harness": false,
+    "process": {
+      "pgid": 93963,
+      "pid": 93963,
+      "start_time": "Sat Oct 31 19:19:22 2026"
+    },
+    "result": {
+      "duration_ms": 7606,
+      "has_structured_output": true,
+      "is_error": false,
+      "num_turns": 3,
+      "permission_denials": [],
+      "stop_reason": "tool_use",
+      "subtype": "success"
+    },
+    "review": {
+      "artifact_sha256": "365cabdd1b5757a419deb25a2346b1388943716f090df19676ecc80e73ecfa79",
+      "finding_count": 1,
+      "first_finding_id": "F1",
+      "reviewed_sha256": "365cabdd1b5757a419deb25a2346b1388943716f090df19676ecc80e73ecfa79"
+    },
+    "stderr": {
+      "first_words": [],
+      "lines": 0
+    },
+    "timed_out": false,
+    "tool_results": [
+      {
+        "is_error": false,
+        "text": "1\t# Scope\n2\t\n3\tBeta plan for a small team with the stated backlog.\n4\t\n5\t# Capacity\n6\t\n7\t- The team has 3 engineers.\n8\t- The project runs for 4 weeks, with 5 wor"
+      },
+      {
+        "is_error": false,
+        "text": "Structured output provided successfully"
+      }
+    ],
+    "tools_used": [
+      {
+        "name": "Read",
+        "path": "~/Library/Caches/bff-m0/runs/C1a/proj/tasks/t1/artifact.md"
+      },
+      {
+        "name": "StructuredOutput",
+        "path": null
+      }
+    ],
+    "usage": {
+      "cost_status": "Estimated",
+      "cost_usd_estimated": 0.0295439,
+      "per_model": {
+        "claude-sonnet-5-5": {
+          "cache_creation": 5514,
+          "cache_read": 5099,
+          "input": 4,
+          "output": 697
+        }
+      },
+      "result_distrusted": false,
+      "tokens": {
+        "cache_creation": 5514,
+        "cache_read": 5099,
+        "input": 4,
+        "output": 697
+      },
+      "tokens_status": "Reported"
+    },
+    "violations": []
+  },
+  "id": "C1b",
+  "model": "claude-sonnet-5-5",
+  "other_clients": {
+    "chatgpt_codex_app_processes": 0,
+    "claude_cli_processes": 5,
+    "claude_desktop_processes": 31,
+    "codex_cli_processes_outside_chatgpt_app": 0,
+    "codexbar": 1
+  },
+  "pins": {
+    "claude": "2.1.316",
+    "codex": "0.166.0"
+  },
+  "route": "Claude",
+  "started_at": 1793499562,
+  "status": "Done",
+  "stop": null,
+  "usage_after": {
+    "claude": {
+      "at": 1793499571,
+      "auth_method": "claude.ai",
+      "usage_call_tokens": 0,
+      "windows": [
+        {
+          "label": "session",
+          "percent": 9.0,
+          "resets": "Oct 31 at 11:09pm (America/Los_Angeles)"
+        },
+        {
+          "label": "week (all models)",
+          "percent": 20.0,
+          "resets": "Nov 3 at 5:59am (America/Los_Angeles)"
+        },
+        {
+          "label": "week (Fable)",
+          "percent": 0.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        }
+      ]
+    },
+    "codex": {
+      "account": {
+        "kind": "chatgpt",
+        "plan_type": "prolite"
+      },
+      "account_hash": "9df5fe5ac52e",
+      "at": 1793499572,
+      "balance": "1250.0000000000",
+      "balance_state": "known 1250",
+      "buckets": [
+        {
+          "bucket": "codex",
+          "primary": {
+            "resets_at": 1794021146,
+            "used_percent": 2,
+            "window_mins": 10080
+          },
+          "secondary": null
+        }
+      ],
+      "ordinary_usage_allowed": true
+    }
+  },
+  "usage_before": {
+    "claude": {
+      "at": 1793499561,
+      "auth_method": "claude.ai",
+      "usage_call_tokens": 0,
+      "windows": [
+        {
+          "label": "session",
+          "percent": 9.0,
+          "resets": "Oct 31 at 11:09pm (America/Los_Angeles)"
+        },
+        {
+          "label": "week (all models)",
+          "percent": 20.0,
+          "resets": "Nov 3 at 5:59am (America/Los_Angeles)"
+        },
+        {
+          "label": "week (Fable)",
+          "percent": 0.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        }
+      ]
+    },
+    "codex": {
+      "account": {
+        "kind": "chatgpt",
+        "plan_type": "prolite"
+      },
+      "account_hash": "9df5fe5ac52e",
+      "at": 1793499562,
+      "balance": "1250.0000000000",
+      "balance_state": "known 1250",
+      "buckets": [
+        {
+          "bucket": "codex",
+          "primary": {
+            "resets_at": 1794021146,
+            "used_percent": 2,
+            "window_mins": 10080
+          },
+          "secondary": null
+        }
+      ],
+      "ordinary_usage_allowed": true
+    }
+  },
+  "what": "peer exchange: Claude reviews"
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-web-research"
+description = "Enables the set_web_research command without any pre-configured scope."
+commands.allow = ["set_web_research"]
+
+[[permission]]
+identifier = "deny-set-web-research"
+description = "Denies the set_web_research command without any pre-configured scope."
+commands.deny = ["set_web_research"]

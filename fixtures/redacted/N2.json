@@ -1,0 +1,61 @@
+{
+  "at": 1793495151,
+  "check": "N2",
+  "codex_version": "codex-cli 0.166.0",
+  "curated_overrides": 41,
+  "names": {
+    "missing_notifications": [],
+    "missing_requests": [],
+    "notifications": 85,
+    "requests": 106
+  },
+  "policy_shapes": {
+    "readOnly_fields": [
+      "networkAccess",
+      "type"
+    ],
+    "variants": [
+      "dangerFullAccess",
+      "readOnly",
+      "externalSandbox",
+      "workspaceWrite"
+    ],
+    "workspaceWrite_fields": [
+      "excludeSlashTmp",
+      "excludeTmpdirEnvVar",
+      "networkAccess",
+      "type",
+      "writableRoots"
+    ]
+  },
+  "print_startup_config": {
+    "with_strict_config": {
+      "exit_code": 1,
+      "stderr_dropped_lines": 0,
+      "stderr_kept": [
+        "Error: startup configuration unavailable"
+      ],
+      "stdout_json": true,
+      "stdout_top_keys": [
+        "error"
+      ]
+    },
+    "without_strict_config": {
+      "exit_code": 0,
+      "stderr_dropped_lines": 0,
+      "stderr_kept": [],
+      "stdout_json": true,
+      "stdout_top_keys": [
+        "appServerVersion",
+        "configRequirements"
+      ]
+    }
+  },
+  "schema": {
+    "committed_sha256": "e025e54fb11354eb82767ea040b40efa17b34dfc706c9433a6115b5f4771c465",
+    "experimental_flag_used": false,
+    "fresh_sha256": "e025e54fb11354eb82767ea040b40efa17b34dfc706c9433a6115b5f4771c465",
+    "generate_exit_ok": true,
+    "identical": true
+  }
+}

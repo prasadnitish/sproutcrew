@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-use-starter"
+description = "Enables the use_starter command without any pre-configured scope."
+commands.allow = ["use_starter"]
+
+[[permission]]
+identifier = "deny-use-starter"
+description = "Denies the use_starter command without any pre-configured scope."
+commands.deny = ["use_starter"]

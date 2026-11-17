@@ -1,0 +1,180 @@
+[
+  {
+    "method": "configWarning",
+    "params": {}
+  },
+  {
+    "method": "remoteControl/status/changed",
+    "params": {
+      "status": "disabled"
+    }
+  },
+  {
+    "method": "account/updated",
+    "params": {
+      "authMode": "chatgpt",
+      "planType": "prolite"
+    }
+  },
+  {
+    "method": "thread/started",
+    "params": {}
+  },
+  {
+    "method": "warning",
+    "params": {
+      "threadId": "01a194ea-3f90-7d40-b481-bf547a2115b9"
+    }
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a194ea-3f90-7d40-b481-bf547a2115b9"
+    }
+  },
+  {
+    "method": "turn/started",
+    "params": {
+      "threadId": "01a194ea-3f90-7d40-b481-bf547a2115b9",
+      "turn": {
+        "id": "01a194ea-3fb5-7333-b87f-d42fb44e470e",
+        "status": "inProgress"
+      }
+    }
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "id": "01a194ea-434c-7df3-a807-f06e42ae7a5d",
+        "type": "userMessage"
+      },
+      "threadId": "01a194ea-3f90-7d40-b481-bf547a2115b9",
+      "turnId": "01a194ea-3fb5-7333-b87f-d42fb44e470e"
+    }
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "id": "01a194ea-434c-7df3-a807-f06e42ae7a5d",
+        "type": "userMessage"
+      },
+      "threadId": "01a194ea-3f90-7d40-b481-bf547a2115b9",
+      "turnId": "01a194ea-3fb5-7333-b87f-d42fb44e470e"
+    }
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "id": "[token]",
+        "type": "reasoning"
+      },
+      "threadId": "01a194ea-3f90-7d40-b481-bf547a2115b9",
+      "turnId": "01a194ea-3fb5-7333-b87f-d42fb44e470e"
+    }
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "id": "[token]",
+        "type": "reasoning"
+      },
+      "threadId": "01a194ea-3f90-7d40-b481-bf547a2115b9",
+      "turnId": "01a194ea-3fb5-7333-b87f-d42fb44e470e"
+    }
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "id": "[token]",
+        "phase": "final_answer",
+        "type": "agentMessage"
+      },
+      "threadId": "01a194ea-3f90-7d40-b481-bf547a2115b9",
+      "turnId": "01a194ea-3fb5-7333-b87f-d42fb44e470e"
+    }
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "id": "[token]",
+        "phase": "final_answer",
+        "type": "agentMessage"
+      },
+      "threadId": "01a194ea-3f90-7d40-b481-bf547a2115b9",
+      "turnId": "01a194ea-3fb5-7333-b87f-d42fb44e470e"
+    }
+  },
+  {
+    "method": "thread/tokenUsage/updated",
+    "params": {
+      "threadId": "01a194ea-3f90-7d40-b481-bf547a2115b9",
+      "tokenUsage": {
+        "last": {
+          "cacheWriteInputTokens": 0,
+          "cachedInputTokens": 0,
+          "inputTokens": 9633,
+          "outputTokens": 356,
+          "reasoningOutputTokens": 316,
+          "totalTokens": 9989
+        },
+        "modelContextWindow": 258400,
+        "total": {
+          "cacheWriteInputTokens": 0,
+          "cachedInputTokens": 0,
+          "inputTokens": 9633,
+          "outputTokens": 356,
+          "reasoningOutputTokens": 316,
+          "totalTokens": 9989
+        }
+      },
+      "turnId": "01a194ea-3fb5-7333-b87f-d42fb44e470e"
+    }
+  },
+  {
+    "method": "account/rateLimits/updated",
+    "params": {
+      "rateLimits": {
+        "credits": {
+          "balance": "1250.0000000000",
+          "hasCredits": true,
+          "unlimited": false
+        },
+        "individualLimit": null,
+        "limitId": "codex",
+        "limitName": null,
+        "normalModelSlug": null,
+        "planType": "prolite",
+        "primary": {
+          "resetsAt": 1794021146,
+          "usedPercent": 2,
+          "windowDurationMins": 10080
+        },
+        "rateLimitReachedType": null,
+        "secondary": null,
+        "spendControlReached": null
+      }
+    }
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a194ea-3f90-7d40-b481-bf547a2115b9"
+    }
+  },
+  {
+    "method": "turn/completed",
+    "params": {
+      "threadId": "01a194ea-3f90-7d40-b481-bf547a2115b9",
+      "turn": {
+        "id": "01a194ea-3fb5-7333-b87f-d42fb44e470e",
+        "status": "completed"
+      }
+    }
+  }
+]

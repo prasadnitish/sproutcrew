@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reliability"
+description = "Enables the reliability command without any pre-configured scope."
+commands.allow = ["reliability"]
+
+[[permission]]
+identifier = "deny-reliability"
+description = "Denies the reliability command without any pre-configured scope."
+commands.deny = ["reliability"]

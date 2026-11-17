@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-spend-status"
+description = "Enables the spend_status command without any pre-configured scope."
+commands.allow = ["spend_status"]
+
+[[permission]]
+identifier = "deny-spend-status"
+description = "Denies the spend_status command without any pre-configured scope."
+commands.deny = ["spend_status"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-unblock-connector"
+description = "Enables the unblock_connector command without any pre-configured scope."
+commands.allow = ["unblock_connector"]
+
+[[permission]]
+identifier = "deny-unblock-connector"
+description = "Denies the unblock_connector command without any pre-configured scope."
+commands.deny = ["unblock_connector"]

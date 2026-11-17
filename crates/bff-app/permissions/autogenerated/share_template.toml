@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-share-template"
+description = "Enables the share_template command without any pre-configured scope."
+commands.allow = ["share_template"]
+
+[[permission]]
+identifier = "deny-share-template"
+description = "Denies the share_template command without any pre-configured scope."
+commands.deny = ["share_template"]

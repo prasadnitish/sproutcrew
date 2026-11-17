@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-keynote-installed"
+description = "Enables the keynote_installed command without any pre-configured scope."
+commands.allow = ["keynote_installed"]
+
+[[permission]]
+identifier = "deny-keynote-installed"
+description = "Denies the keynote_installed command without any pre-configured scope."
+commands.deny = ["keynote_installed"]

@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Help and FAQ — Sprout Crew</title>
+<meta name="description" content="Answers about Sprout Crew: projects and the review board, models and costs, your own AI service, sources and templates, Word, PowerPoint, PDF and Excel results, Notion, social posts, memory, privacy and running code.">
+<link rel="canonical" href="https://www.sproutcrew.app/help">
+<meta name="theme-color" content="#F7F3EC">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/dm-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/launch.css">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Help and FAQ — Sprout Crew">
+<meta property="og:description" content="How Sprout Crew works, what it costs, and what it does and does not do.">
+<meta property="og:image" content="https://www.sproutcrew.app/assets/review-board-social.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+.help-toc{display:flex;flex-wrap:wrap;gap:8px 18px;margin:8px 0 8px;padding:0;list-style:none}
+.help-toc a{font-size:15px}
+.guide h2{scroll-margin-top:24px}
+.help-steps{padding-left:22px}
+.help-steps li{margin-bottom:6px}
+.help-note{border-left:3px solid var(--line);padding-left:14px}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="launch-nav wrap"><a class="brand" href="/" aria-label="Sprout Crew home"><img src="/assets/mark.svg" width="34" height="46" alt=""><span>Sprout Crew</span></a><nav aria-label="Main navigation"><a href="/#how">How it works</a><a href="/getting-started">Get started</a><a href="/help">Help</a><a class="button small" href="/download">Mac beta <span aria-hidden="true">↗</span></a></nav></header>
+<main id="main" class="wrap guide">
+<p class="eyebrow">Help and FAQ</p>
+<h1>Answers, in plain words.</h1>
+<p class="hero-lede">Sprout Crew gives one AI the writing and a second AI the checking, and you approve the plan before anything runs. This page explains each part of the app, what it costs, and what it will not do. New to the app? Start with <a href="/getting-started">Get started</a>.</p>
+
+<nav aria-label="On this page"><ul class="help-toc">
+<li><a href="#basics">The basics</a></li>
+<li><a href="#review-board">The review board</a></li>
+<li><a href="#models">Models and connections</a></li>
+<li><a href="#own-service">Your own AI service</a></li>
+<li><a href="#costs">Costs and limits</a></li>
+<li><a href="#sources">Sources and templates</a></li>
+<li><a href="#results">Results and files</a></li>
+<li><a href="#notion">Notion and folders</a></li>
+<li><a href="#posts">Social posts</a></li>
+<li><a href="#memory">Memory</a></li>
+<li><a href="#code">Running code and prototypes</a></li>
+<li><a href="#privacy">Privacy and keys</a></li>
+<li><a href="#trouble">When something goes wrong</a></li>
+</ul></nav>
+
+<h2 id="basics">The basics</h2>
+<div class="launch-faq">
+<details><summary>What does Sprout Crew do?</summary><p>You describe a piece of work, such as a proposal, a research brief, a case study or a decision memo, and add your files. Sprout Crew plans the steps, one AI does the writing, and a different AI checks it. You see the plan, the models, the guardrails and the most it could cost before you approve it. Nothing runs until you do.</p></details>
+<details><summary>Which outcomes can I choose?</summary><p>Writing and editing, a case study, a proposal, a research brief, social posts, a brainstorm, and a quick brainstorm (a four-step decision memo). App development appears only if you allow projects that write running code (see <a href="#code">Running code</a>). "Something else" lets you describe your own steps.</p></details>
+<details><summary>Do I need to know anything technical?</summary><p>No. You need a Mac and an account with an AI provider. OpenRouter is the easiest start: one key gives you many models, including free ones. Everything else is chosen for you, and you can change it later.</p></details>
+<details><summary>What is a "step", and what is a "crew"?</summary><p>A step is one piece of the work, such as "Write the first draft" or "Check the numbers". Your crew is the set of roles that do the steps: writers on one side, checkers on the other. Each role has a model you can change.</p></details>
+<details><summary>What happens if I remove a step but leave the step that checks it?</summary><p>The checking step is skipped with a note that says why, and the rest of the run goes on. The review board warns you before you approve. Nothing is charged for a skipped step.</p></details>
+</div>
+
+<h2 id="review-board">The review board</h2>
+<div class="launch-faq">
+<details><summary>What am I approving?</summary><p>Exactly what the board shows: the steps, who writes and who checks, the guardrails, your sources and the limits. If any of these change afterwards, including the address of your own AI service, the approval no longer counts and you approve again.</p></details>
+<details><summary>What are the guardrails?</summary><p>Plain choices about what the crew may do. "Send anything outside this Mac" and "Delete files" can be set to ask you each time or never. Running commands on your Mac is always off and cannot be turned on. Checkers can read the work but never change it. Experts can open "Set per role" for the full table.</p></details>
+<details><summary>What is "Approve and start"?</summary><p>It approves the plan and starts the run in one click. "Approve only" approves without starting, so you can start later.</p></details>
+<details><summary>Can the providers keep nothing?</summary><p>Yes. On the review board, choose that AI providers keep nothing. Each request then goes only to OpenRouter endpoints that promise not to store prompts or answers. Steps on other providers, and web research, are refused while this is on, and the board says which.</p></details>
+</div>
+
+<h2 id="models">Models and connections</h2>
+<div class="launch-faq">
+<details><summary>Which providers can I connect?</summary><p>OpenRouter (recommended), Anthropic, OpenAI and Google Gemini, each with your own API key, plus your own AI service at an address you type (next section). Keys are checked with a free request before they are saved.</p></details>
+<details><summary>How do I choose a model?</summary><p>On a step or role, open the model picker. You can search by name, filter by maker, and see the price in and out per million tokens and how much text the model can read. Recommended models are at the top, then free models, then all of them. If you know the exact model ID, you can type it.</p></details>
+<details><summary>Which models are the defaults?</summary><p>New projects write with Claude Haiku 5.5 and check with Mistral Small, both through OpenRouter. They are from different makers on purpose, so the check is a second opinion rather than the same model reading its own work.</p></details>
+<details><summary>Will the app switch me to a paid model?</summary><p>No. The app never moves a step to a paid model unless you choose it and approve the plan.</p></details>
+<details><summary>What are free models' limits?</summary><p>OpenRouter's free models allow 20 requests a minute and 50 a day, or 1,000 a day once the account has bought $10 of credit. A project with many steps can hit the daily limit. The app waits and retries for the per-minute limit, and tells you plainly when the daily allowance is used up.</p></details>
+<details><summary>Can a model look at my pictures?</summary><p>Yes, if you choose a model the picker marks as able to read images. Up to four picture sources are shown to it with the request, and they count toward your limits. Text inside a picture is treated as information, never as an instruction.</p></details>
+</div>
+
+<h2 id="own-service">Your own AI service</h2>
+<p>Many AI services accept requests in the same format as OpenAI. Their help pages call it an "OpenAI-compatible API". This includes hosted services such as Together, Groq and Fireworks, and apps that run a model on your own Mac, such as Ollama and LM Studio.</p>
+<ol class="help-steps">
+<li>Open <strong>Settings</strong>, find <strong>Your own AI service</strong>, and choose <strong>What do I type here?</strong> for examples.</li>
+<li>Type the <strong>address</strong> (the service calls it the base URL), for example <code>https://api.together.xyz/v1</code>, or <code>http://localhost:11434/v1</code> for Ollama on this Mac.</li>
+<li>Type the <strong>model name</strong> exactly as the service lists it, such as <code>llama3.3</code>.</li>
+<li>Paste a <strong>key</strong> if the service gave you one. Apps on your own Mac usually need none.</li>
+<li>Choose <strong>Check and save</strong>. The app asks the service for its list of models, which costs nothing, and shows what it offers.</li>
+<li>Pick <strong>Your own AI service</strong> as the provider for any role.</li>
+</ol>
+<div class="launch-faq">
+<details><summary>Why must the address start with https://?</summary><p>So what is sent is encrypted on the way. Your brief, sources and results go to this address. The only exception is an app on your own Mac, such as <code>http://localhost:11434</code>, because nothing leaves the Mac.</p></details>
+<details><summary>What does it cost?</summary><p>The app cannot see this service's prices, so cost shows as "unknown", never as zero, and the token limit in Usage &amp; limits applies. Check the service's own billing. A model on your Mac costs nothing to run but may write less well than a large hosted model.</p></details>
+<details><summary>What if I change the address later?</summary><p>Any key saved for the old address is removed, so it is never sent to the new one, and plans you approved before need a new approval.</p></details>
+</div>
+
+<h2 id="costs">Costs and limits</h2>
+<div class="launch-faq">
+<details><summary>How do I know what a run will cost?</summary><p>The review board shows the estimate and the most the run could cost before you approve. During and after a run, Usage &amp; limits shows the cost by step, model, role, day and month, and can export it as a spreadsheet file. The menu bar shows today's cost and tokens across all projects.</p></details>
+<details><summary>Is there a spending cap?</summary><p>Paid OpenRouter models stop at $5 per project. Before each request, the app holds the most it could cost against that limit, and refuses a request whose price it does not know. You can raise the limit for a project in Usage &amp; limits. There is also a token limit shared by all projects. Set spending controls with your provider too.</p></details>
+<details><summary>Why do some costs say "unknown"?</summary><p>When a provider does not report the cost of a request and the app has no price for it, the cost is unknown. The app never counts an unknown cost as zero.</p></details>
+<details><summary>What does web research cost?</summary><p>Web research needs a paid model, and OpenRouter charges a small fee per search (about $0.007 when this was written). The review board includes it in the estimate.</p></details>
+<details><summary>What happens if I press Stop?</summary><p>No new work starts. A request already sent to a provider can still finish or be billed, and the app keeps the usage it is told about.</p></details>
+</div>
+
+<h2 id="sources">Sources and templates</h2>
+<div class="launch-faq">
+<details><summary>What can I add as sources?</summary><p>Files (PDF, Word, PowerPoint, Excel, text, Markdown and pictures), whole folders including subfolders, public web pages, and Notion pages. Text in a source is information for the crew, never an instruction to it.</p></details>
+<details><summary>Can the crew search the web?</summary><p>Yes, if you turn on web research when you create the project. The research step sees only your brief, never your files, and lists the address of every page it used. Pages are treated as evidence to check, not instructions.</p></details>
+<details><summary>How do I make results look like my own documents?</summary><p>Under <strong>Sources → Template</strong>, pick one of your Word or PowerPoint files and choose <strong>See what it offers</strong>. Then tick what to keep: the look (fonts, text size, page size, margins, colour and logo), the section headings, and a short note on its writing style. A PDF gives the sections and style only. You can edit the sections and style, save a template for all projects, or start from one of three: Case study, Proposal and Research brief.</p></details>
+</div>
+
+<h2 id="results">Results and files</h2>
+<div class="launch-faq">
+<details><summary>What files do I get?</summary><p>Word, PowerPoint and PDF versions of the finished work, and an Excel file of the tables in it. Numbers in the spreadsheet are values only, with no formulas. Every result can also be read and copied in the app.</p></details>
+<details><summary>Can the app remove the signs of AI writing?</summary><p>Yes. For writing, proposals and research briefs, tick <strong>Polish the finished text</strong>. One more step rewrites the wording only. The app refuses a polished version that changes a number, a heading or the length by much, and keeps the original.</p></details>
+<details><summary>Will I be told when a run finishes?</summary><p>If you turn on Mac alerts in Settings, you get one when a run finishes, stops, fails or waits on a rate limit. Alerts never include your text, and include the project name only if you allow it.</p></details>
+<details><summary>What is "How your crews have done"?</summary><p>A summary on the Home screen, built from your own projects on this Mac: for each outcome and pair of models, how many runs finished, how many stopped, and how many findings the checkers raised. Nothing is sent anywhere.</p></details>
+</div>
+
+<h2 id="notion">Notion and folders</h2>
+<div class="launch-faq">
+<details><summary>Can I read a Notion page into a project?</summary><p>Yes. Add a Notion page as a source, and its text is read, including the blocks inside it. This needs a Notion integration key saved in your Mac's Keychain, and the page shared with that integration.</p></details>
+<details><summary>Can the app write to Notion?</summary><p>Yes, in two ways. It can make a new page under a page you choose, or add a result to the end of a page you already have, under a heading. Adding never changes or removes what is already on the page. Either way, you see the exact text first, approve it, and then it is sent once.</p></details>
+<details><summary>How do I connect Notion?</summary><p>In Notion, make an integration and copy its key. Then open the page you want to use, choose Connections from its menu, and add your integration. The app reads with one key and writes with a separate one, both kept in the Keychain.</p></details>
+<details><summary>Can I read a Google Doc?</summary><p>Yes. In Settings, choose <strong>Connect Google Docs</strong>. Google’s sign-in page opens in your browser; choose your account and allow SproutCrew to view your documents. Then, under Sources, choose <strong>A Google Doc</strong> and paste its link. SproutCrew can only view documents and never edits them. Text, headings, lists and tables are read; pictures are left out. Your sign-in is kept in your Mac’s Keychain, and <strong>Disconnect</strong> forgets it.</p></details>
+<details><summary>Can I save a result into Obsidian or another folder?</summary><p>Yes. In Results &amp; sharing, type the folder, such as your Obsidian vault. The result is saved as a new Markdown file. An existing file is never replaced; a number is added to the name instead.</p></details>
+</div>
+
+<h2 id="posts">Social posts</h2>
+<div class="launch-faq">
+<details><summary>What does the social posts outcome make?</summary><p>For each platform you name, such as LinkedIn, X, Instagram, Threads or Bluesky, it writes each post within that platform's limit, with a character count, hashtags, what the picture should show and its size, and alt text. A second AI checks the facts, the tone and the lengths. The result is ready to copy into your scheduling tool or a Notion page.</p></details>
+<details><summary>Does it know each platform's current rules?</summary><p>Turn on web research when you create the project. The first step then looks up each platform's current character limits, image sizes and hashtag norms on the web, with the page each figure came from, and the posts follow them. Without it, the app uses common limits and says they should be checked.</p></details>
+<details><summary>Does Sprout Crew post for me?</summary><p>No. It creates the content; you post it.</p></details>
+</div>
+
+<h2 id="memory">Memory</h2>
+<div class="launch-faq">
+<details><summary>What does the crew remember?</summary><p>Only what is on the Memory screen: notes for one project, and notes for every project. You can edit or delete any of them. Every step of every project gets the notes for every project; a project's own notes win if they disagree.</p></details>
+<details><summary>Does memory leave my Mac?</summary><p>Notes are stored on your Mac. They are sent to the AI provider with each request, like the rest of a step's context.</p></details>
+</div>
+
+<h2 id="code">Running code and prototypes</h2>
+<div class="launch-faq">
+<details><summary>Can Sprout Crew build an app or a prototype?</summary><p>Only if you turn on <strong>Allow projects that write running code</strong> in Settings. It is off until you do. Then New project offers App development, and brainstorms, quick brainstorms and proposals can end with a few clickable screens of what is recommended, with sample data. If your sources include screenshots, the prototype shows a before and an after.</p></details>
+<details><summary>Is that safe?</summary><p>Code is shown to you for review before any later step uses it. A prototype opens only in the app's own preview, which loads nothing from the internet. The crew never runs commands on your Mac.</p></details>
+<details><summary>Can the crew build the deck in Keynote?</summary><p>Yes, on a Mac with Keynote. When a plan makes slides, the review board asks <strong>Build the deck in Keynote</strong>. Choose <strong>Yes</strong> and approve the plan. When the files are made, Keynote builds a new deck from the slides, with titles, bullets and presenter notes, saved with the project's other files. It never opens or changes your other files. The deck is then read back and checked against the slides, and any difference is listed. The first time, macOS asks whether Sprout Crew may control Keynote; choose OK. You can change that later in System Settings, Privacy &amp; Security, Automation. The deck uses a clean white Keynote theme. If the project has a template, the deck takes its fonts, its colour for titles and its logo, in the top right corner of each slide, the same as the PowerPoint deck. Text sizes stay Keynote's, because a document's text size is too small on a slide. Pictures from the result itself are not added.</p></details>
+<details><summary>Can the crew use my other apps?</summary><p>Not yet, apart from building a deck in Keynote. When it comes, it will ask for macOS permission only when you turn it on for a step, never during setup, and the review board will say which app, which file, and how many actions it may take.</p></details>
+</div>
+
+<h2 id="privacy">Privacy and keys</h2>
+<div class="launch-faq">
+<details><summary>Where are my keys kept?</summary><p>In your Mac's Keychain. The app reads a key only when it is about to send a request, and never shows it, logs it or sends it anywhere except that provider.</p></details>
+<details><summary>What is sent to the AI providers?</summary><p>Your brief and the context each step needs: the relevant sources, earlier results and memory notes. Results are sent outside the Mac, for example to Notion, only when you approve that exact send.</p></details>
+<details><summary>Does Sprout Crew collect anything about me?</summary><p>No. There are no analytics. If you report a problem, Settings can make a log file you choose to send, and it never contains your text, file names or keys. See the <a href="/privacy">privacy policy</a>.</p></details>
+</div>
+
+<h2 id="trouble">When something goes wrong</h2>
+<div class="launch-faq">
+<details><summary>A step says the free allowance is used up.</summary><p>OpenRouter's free daily limit is reached. Wait for it to reset, or choose another model for that step with <strong>Choose another model</strong>, then approve the changed plan.</p></details>
+<details><summary>A step says my account is out of credit.</summary><p>Add credit at OpenRouter with <strong>Add credit</strong>, then choose <strong>Try again</strong>.</p></details>
+<details><summary>A step says the API key has reached its spending limit.</summary><p>The key itself has a limit, set where the key was made, and it is used up. Nothing was charged for that step. Raise the key's limit with the provider, or connect another key in Settings, then choose <strong>Try again</strong>. This is separate from the project limit, which you set in the app.</p></details>
+<details><summary>A step stopped because of the project limit.</summary><p>The step could have cost more than is left of the project's $5. Raise the limit in Usage &amp; limits, or choose a cheaper model.</p></details>
+<details><summary>A step says what it sends is too long.</summary><p>Each step sends its brief, its sources and the results it builds on, and each AI service has a limit on how long that can be. Remove a long source you do not need, or ask your coordinator to split the step into smaller ones.</p></details>
+<details><summary>A provider did not answer within 5 minutes.</summary><p>The app cannot tell whether that request was charged, so it puts AI work on hold. Check your usage on the provider's website, then quit and reopen Sprout Crew to go on.</p></details>
+<details><summary>My own AI service cannot be reached.</summary><p>For an app on your Mac, check it is open and its server is switched on, and that the port number in the address matches. For a hosted service, check the address against its help page; it often ends with <code>/v1</code>.</p></details>
+<details><summary>How do I report a problem?</summary><p>Use <strong>Settings → Export a log for a bug report</strong> and email it to <a href="mailto:hello@sproutcrew.app">hello@sproutcrew.app</a>. Do not send API keys or confidential files.</p></details>
+</div>
+</main>
+<footer class="wrap launch-footer"><a class="brand" href="/">Sprout Crew</a><p>Made by <a href="https://nitishprasad.com/">Nitish Prasad</a>.</p><nav aria-label="Footer"><a href="/getting-started">Get started</a><a href="/help">Help</a><a href="/changelog">Changelog</a><a href="/roadmap">Roadmap</a><a href="/how-its-built">How it is built</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:hello@sproutcrew.app">Contact</a></nav><p>© 2026 Nitish Prasad</p></footer>
+</body>
+</html>

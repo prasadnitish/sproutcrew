@@ -1,0 +1,2 @@
+{"id":1,"result":{"accountId":"acct-1","rateLimits":{"limitId":"codex","primary":{"usedPercent":5,"windowDurationMins":10080,"resetsAt":1790000000},"credits":{"hasCredits":true,"unlimited":false,"balance":"1250.0000000000"}}}}
+{"method":"account/rateLimits/updated","params":{"rateLimits":{"limitId":"codex_new_pool","primary":{"usedPercent":61,"windowDurationMins":10080,"resetsAt":1790000000}}}}

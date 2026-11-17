@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-revise"
+description = "Enables the revise command without any pre-configured scope."
+commands.allow = ["revise"]
+
+[[permission]]
+identifier = "deny-revise"
+description = "Denies the revise command without any pre-configured scope."
+commands.deny = ["revise"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-coordinator-chat"
+description = "Enables the coordinator_chat command without any pre-configured scope."
+commands.allow = ["coordinator_chat"]
+
+[[permission]]
+identifier = "deny-coordinator-chat"
+description = "Denies the coordinator_chat command without any pre-configured scope."
+commands.deny = ["coordinator_chat"]

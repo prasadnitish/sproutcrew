@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-notification-names"
+description = "Enables the set_notification_names command without any pre-configured scope."
+commands.allow = ["set_notification_names"]
+
+[[permission]]
+identifier = "deny-set-notification-names"
+description = "Denies the set_notification_names command without any pre-configured scope."
+commands.deny = ["set_notification_names"]

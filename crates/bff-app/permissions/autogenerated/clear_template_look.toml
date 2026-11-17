@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clear-template-look"
+description = "Enables the clear_template_look command without any pre-configured scope."
+commands.allow = ["clear_template_look"]
+
+[[permission]]
+identifier = "deny-clear-template-look"
+description = "Denies the clear_template_look command without any pre-configured scope."
+commands.deny = ["clear_template_look"]

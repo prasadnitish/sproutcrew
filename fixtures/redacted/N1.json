@@ -1,0 +1,483 @@
+{
+  "account": {
+    "kind": "chatgpt",
+    "plan_type": "prolite",
+    "requires_openai_auth": true
+  },
+  "at": 1793500420,
+  "check": "N1",
+  "config": {
+    "match": 42,
+    "mismatch": 0,
+    "not_reported": 0,
+    "overrides_total": 42,
+    "statuses": {
+      "agents.enabled": "match",
+      "features.apps": "match",
+      "features.browser_use": "match",
+      "features.browser_use_external": "match",
+      "features.computer_use": "match",
+      "features.goals": "match",
+      "features.hooks": "match",
+      "features.image_generation": "match",
+      "features.in_app_browser": "match",
+      "features.memories": "match",
+      "features.multi_agent": "match",
+      "features.multi_agent_v2": "match",
+      "features.plugins": "match",
+      "features.skill_mcp_dependency_install": "match",
+      "features.skill_search": "match",
+      "features.tool_suggest": "match",
+      "forced_login_method": "match",
+      "mcp_servers.agentmail.enabled": "match",
+      "mcp_servers.cloudflare-bindings.enabled": "match",
+      "mcp_servers.cloudflare-builds.enabled": "match",
+      "mcp_servers.cloudflare-docs.enabled": "match",
+      "mcp_servers.cloudflare-observability.enabled": "match",
+      "mcp_servers.cloudflare.enabled": "match",
+      "mcp_servers.computer-use.enabled": "match",
+      "mcp_servers.context7.enabled": "match",
+      "mcp_servers.node_repl.enabled": "match",
+      "mcp_servers.openaiDeveloperDocs.enabled": "match",
+      "mcp_servers.sentry.enabled": "match",
+      "mcp_servers.sequential-thinking.enabled": "match",
+      "mcp_servers.supabase.enabled": "match",
+      "memories.generate_memories": "match",
+      "memories.use_memories": "match",
+      "model_provider": "match",
+      "model_reasoning_effort": "match",
+      "notify": "match",
+      "project_root_markers": "match",
+      "service_tier": "match",
+      "shell_environment_policy.inherit": "match",
+      "shell_environment_policy.set": "match",
+      "skills.bundled.enabled": "match",
+      "skills.include_instructions": "match",
+      "web_search": "match"
+    },
+    "top_level_keys": [
+      "agents",
+      "allow_login_shell",
+      "allow_symlinked_codex_home",
+      "analytics",
+      "approval_policy",
+      "approvals_reviewer",
+      "apps",
+      "apps_mcp_product_sku",
+      "audio",
+      "auto_review",
+      "background_terminal_max_timeout",
+      "browser_use",
+      "chatgpt_base_url",
+      "check_for_update_on_startup",
+      "cli_auth_credentials_store",
+      "cloud",
+      "compact_prompt",
+      "computer_use",
+      "daybreak",
+      "default_permissions",
+      "desktop",
+      "developer_instructions",
+      "disable_paste_burst",
+      "[token]",
+      "[token]",
+      "[token]",
+      "[token]",
+      "[token]",
+      "experimental_realtime_ws_model",
+      "[token]",
+      "experimental_thread_store",
+      "[token]",
+      "[token]",
+      "features",
+      "feedback",
+      "file_opener",
+      "forced_chatgpt_workspace_id",
+      "forced_login_method",
+      "ghost_snapshot",
+      "goals",
+      "hide_agent_reasoning",
+      "history",
+      "hooks",
+      "include_apps_instructions",
+      "[token]",
+      "include_environment_context",
+      "[token]",
+      "[token]",
+      "instructions",
+      "js_repl_node_module_dirs",
+      "js_repl_node_path",
+      "log_dir",
+      "marketplaces",
+      "mcp_enterprise_managed_auth",
+      "mcp_oauth_callback_port",
+      "mcp_oauth_callback_url",
+      "mcp_oauth_credentials_store",
+      "mcp_optional_startup_grace_ms",
+      "mcp_servers",
+      "memories",
+      "model",
+      "model_auto_compact_token_limit",
+      "[token]",
+      "model_catalog_json",
+      "model_context_window",
+      "model_instructions_file",
+      "[token]",
+      "model_provider",
+      "model_providers",
+      "model_reasoning_effort",
+      "model_reasoning_summary",
+      "model_verbosity",
+      "notice",
+      "notify",
+      "openai_base_url",
+      "orchestrator",
+      "oss_provider",
+      "otel",
+      "permissions",
+      "personality",
+      "plan_mode_reasoning_effort",
+      "plugins",
+      "profile",
+      "profiles",
+      "project_doc_fallback_filenames",
+      "project_doc_max_bytes",
+      "project_root_markers",
+      "projects",
+      "realtime",
+      "responses_api_metadata",
+      "review_model",
+      "sandbox_mode",
+      "sandbox_workspace_write",
+      "service_tier",
+      "shell_environment_policy",
+      "show_raw_agent_reasoning",
+      "skills",
+      "sqlite_home",
+      "[token]",
+      "thread_unload_delay_secs",
+      "tool_output_token_limit",
+      "tool_suggest",
+      "tools",
+      "tui",
+      "web_search",
+      "windows"
+    ]
+  },
+  "config_requirements": {
+    "keys": [
+      "requirements",
+      "supportsIndependentSpeedModes"
+    ],
+    "requirements_keys": [
+      "additionalDeveloperInstructions",
+      "allowAppshots",
+      "allowBrowserAndComputerUse",
+      "allowLoginShell",
+      "allowManagedHooksOnly",
+      "allowRemoteControl",
+      "allowedApprovalPolicies",
+      "allowedApprovalsReviewers",
+      "allowedLoginMethods",
+      "allowedPermissionProfiles",
+      "allowedSandboxModes",
+      "allowedWebSearchModes",
+      "[token]",
+      "application",
+      "autoReview",
+      "browserUse",
+      "chatgptBaseUrl",
+      "checkForUpdateOnStartup",
+      "cliAuthCredentialsStore",
+      "computerUse",
+      "defaultPermissions",
+      "enforceResidency",
+      "featureRequirements",
+      "feedback",
+      "hooks",
+      "inAppBrowser",
+      "logDir",
+      "modelCatalogJson",
+      "modelProvider",
+      "modelProviders",
+      "models",
+      "network",
+      "otel",
+      "sqliteHome"
+    ]
+  },
+  "config_warnings": [
+    {
+      "path": null,
+      "summary": "Codex is ignoring 1 unrecognized configuration setting. Check for typos or deprecated settings.\n  user (~/.codex/config.toml): `mcp_servers.agentmail.type` is ignored."
+    }
+  ],
+  "hooks": {
+    "entries": 1,
+    "errors": 0,
+    "hooks": 0,
+    "warnings": 0
+  },
+  "initialize_keys": [
+    "codexHome",
+    "platformFamily",
+    "platformOs",
+    "userAgent"
+  ],
+  "mcp_servers_disabled": 13,
+  "models": {
+    "count": 10,
+    "listed": [
+      {
+        "defaultReasoningEffort": "low",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ],
+        "hidden": false,
+        "isDefault": true,
+        "model": "gpt-6.1-sol"
+      },
+      {
+        "defaultReasoningEffort": "medium",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ],
+        "hidden": false,
+        "isDefault": false,
+        "model": "gpt-6-astra"
+      },
+      {
+        "defaultReasoningEffort": "low",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ],
+        "hidden": false,
+        "isDefault": false,
+        "model": "gpt-6.1-terra"
+      },
+      {
+        "defaultReasoningEffort": "medium",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ],
+        "hidden": false,
+        "isDefault": false,
+        "model": "gpt-6-sol"
+      },
+      {
+        "defaultReasoningEffort": "medium",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "hidden": true,
+        "isDefault": false,
+        "model": "gpt-reserve"
+      },
+      {
+        "defaultReasoningEffort": "medium",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "hidden": false,
+        "isDefault": false,
+        "model": "gpt-6-luna"
+      },
+      {
+        "defaultReasoningEffort": "low",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ],
+        "hidden": false,
+        "isDefault": false,
+        "model": "gpt-5.6-sol"
+      },
+      {
+        "defaultReasoningEffort": "medium",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max",
+          "ultra"
+        ],
+        "hidden": false,
+        "isDefault": false,
+        "model": "gpt-5.6-terra"
+      },
+      {
+        "defaultReasoningEffort": "medium",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "hidden": false,
+        "isDefault": false,
+        "model": "gpt-5.6-luna"
+      },
+      {
+        "defaultReasoningEffort": "medium",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "hidden": true,
+        "isDefault": false,
+        "model": "codex-auto-review"
+      }
+    ],
+    "required": {
+      "gpt-6-astra": true,
+      "gpt-6-luna": true,
+      "gpt-6.1-sol": true
+    }
+  },
+  "n6": {
+    "codex_processes_before": 0,
+    "new_codex_processes_after_shutdown": [],
+    "new_codex_processes_not_ours": [],
+    "own_descendants_during": 0,
+    "own_group_leader": true,
+    "pgid": 95853,
+    "pid": 95853,
+    "start_time": "Sat Oct 31 19:33:40 2026"
+  },
+  "notifications_during_n1": [
+    "configWarning",
+    "remoteControl/status/changed",
+    "account/updated",
+    "thread/started",
+    "warning"
+  ],
+  "permission_profiles": [
+    {
+      "allowed": true,
+      "id": ":read-only"
+    },
+    {
+      "allowed": true,
+      "id": ":workspace"
+    },
+    {
+      "allowed": true,
+      "id": ":danger-full-access"
+    }
+  ],
+  "rate_limits": {
+    "account_id_hash": "9df5fe5ac52e",
+    "baseline_freeze": "Ok(())",
+    "buckets": [
+      "codex"
+    ],
+    "dispatch_gate": "Ok(())",
+    "dropped_fields": 25,
+    "parsed": true,
+    "redacted": {
+      "ordinaryUsageAllowed": true,
+      "rateLimitResetCredits": {
+        "availableCount": 2
+      },
+      "rateLimits": {
+        "credits": {
+          "balance": "1250.0000000000",
+          "hasCredits": true,
+          "unlimited": false
+        },
+        "limitId": "codex",
+        "limitName": null,
+        "planType": "prolite",
+        "primary": {
+          "resetsAt": 1794021146,
+          "usedPercent": 2,
+          "windowDurationMins": 10080
+        },
+        "rateLimitReachedType": null,
+        "spendControlReached": false
+      },
+      "rateLimitsByLimitId": {
+        "codex": {
+          "credits": {
+            "balance": "1250.0000000000",
+            "hasCredits": true,
+            "unlimited": false
+          },
+          "limitId": "codex",
+          "planType": "prolite",
+          "primary": {
+            "resetsAt": 1794021146,
+            "usedPercent": 2,
+            "windowDurationMins": 10080
+          }
+        }
+      }
+    }
+  },
+  "remote_control_notifications": [
+    {
+      "keys": [
+        "environmentId",
+        "installationId",
+        "serverName",
+        "status"
+      ],
+      "status": "disabled"
+    }
+  ],
+  "server_requests": [],
+  "skills": {
+    "entries": 1,
+    "skills_in_first": 110
+  },
+  "stderr": {
+    "bytes": 264,
+    "first_words": [
+      "mTZm",
+      "user"
+    ],
+    "lines_dropped": 2,
+    "lines_kept": []
+  },
+  "thread_default": {
+    "model_provider": "openai",
+    "reasoning_effort": "medium"
+  }
+}

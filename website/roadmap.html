@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Roadmap · Sprout Crew</title>
+<meta name="description" content="What SproutCrew is working on now, what comes next and later, what is not planned, and the feature set today.">
+<link rel="canonical" href="https://www.sproutcrew.app/roadmap">
+<meta name="theme-color" content="#F7F3EC">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/dm-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/launch.css">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Roadmap · Sprout Crew">
+<meta property="og:description" content="What SproutCrew is working on now, what comes next and later, what is not planned, and the feature set today.">
+<meta property="og:image" content="https://www.sproutcrew.app/assets/review-board-social.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+.log-nav{display:flex;flex-wrap:wrap;gap:8px 18px;margin:8px 0;padding:0;list-style:none}
+.log-nav a{font-size:15px}
+.guide h2{scroll-margin-top:24px}
+.guide h3{font-size:17px;font-weight:600;margin:22px 0 6px;color:var(--ink)}
+.release{border-top:1px solid var(--line);padding-top:8px;margin-top:34px}
+.release h2{margin:18px 0 4px}
+.release-meta{font-size:15px;color:var(--ink-muted);margin:0 0 10px}
+.release ul,.lane ul{padding-left:22px;margin:0}
+.release li,.lane li{padding:3px 0}
+.tag{display:inline-block;font-size:13px;font-weight:600;border:1px solid var(--line);border-radius:999px;padding:1px 10px;margin-left:8px;vertical-align:middle;color:var(--ink)}
+.lane{border-top:1px solid var(--line);margin-top:30px}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin:22px 0;padding:0;list-style:none}
+.facts li{border:1px solid var(--line);border-radius:12px;padding:14px 16px;line-height:1.4}
+.facts b{display:block;font-size:26px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.tbl{overflow-x:auto}
+.tbl table{border-collapse:collapse;width:100%;font-size:15px}
+.tbl th,.tbl td{text-align:left;padding:9px 12px 9px 0;border-top:1px solid var(--line);vertical-align:top;line-height:1.55;color:var(--ink-muted)}
+.tbl th{color:var(--ink);font-weight:600}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="launch-nav wrap"><a class="brand" href="/" aria-label="Sprout Crew home"><img src="/assets/mark.svg" width="34" height="46" alt=""><span>Sprout Crew</span></a><nav aria-label="Main navigation"><a href="/#how">How it works</a><a href="/changelog">Changelog</a><a href="/roadmap">Roadmap</a><a class="button small" href="/download">Mac beta <span aria-hidden="true">↗</span></a></nav></header>
+<main id="main" class="wrap guide">
+<p class="eyebrow">Roadmap</p>
+<h1>Now, next, later.</h1>
+<p class="hero-lede">What is being worked on and in what order. There are no dates, because a date here would be a guess. When something ships, it moves to the <a href="/changelog">changelog</a>.</p>
+<nav aria-label="On this page"><ul class="log-nav"><li><a href="#now">Now</a></li><li><a href="#next">Next</a></li><li><a href="#later">Later</a></li><li><a href="#not-planned">Not planned</a></li><li><a href="#today">In the app today</a></li></ul></nav><section class="lane" id="now"><h2>Now</h2><p>Work in progress for the next release.</p><ul><li><strong>Testing with outside testers.</strong> A round of scripted tests on real Macs, covering first run, every kind of project, exported files, limits and accessibility. What it finds decides the rest of this list.</li><li><strong>Updates that install themselves.</strong> The code is in place. It needs its signing key and a real upgrade test.</li><li><strong>A sample project with no key.</strong> See the review board and a finished result before connecting anything.</li><li><strong>Free models that return nothing.</strong> A clearer result when a free model answers with an empty reply.</li></ul></section><section class="lane" id="next"><h2>Next</h2><p>Planned, in rough order. No dates.</p><ul><li><strong>A design pass.</strong> The app works and reads plainly. It should also feel finished: the review board, findings, the inbox and the cost view first.</li><li><strong>Connectors, further.</strong> Write back to more of the places work is kept, starting with Notion and folders.</li><li><strong>Reliability from real runs.</strong> How often a crew finishes cleanly, measured on your own projects on your own Mac.</li><li><strong>Do approvals help or slow people down?</strong> A small study with each kind of user, before the approval steps change.</li></ul></section><section class="lane" id="later"><h2>Later</h2><p>Bigger bets. Each needs a test before it gets a place above.</p><ul><li><strong>Working inside other apps.</strong> A crew that builds the approved result in the real tool, one named app and file at a time, with every action shown. Early tests showed where this works and where it does not.</li><li><strong>Excel with formulas.</strong> Working models with scenarios, after the values-only sheet in 2.1.0, and Excel files as templates.</li><li><strong>Before-and-after prototypes</strong> from screenshots you upload.</li><li><strong>Recording a run.</strong> Record the app window or the screen while a crew works, with permission asked only when you use it.</li><li><strong>Approving a step from your phone.</strong></li><li><strong>Sign-in with an AI subscription</strong> in place of an API key, if and when the providers allow other apps to do that.</li><li><strong>A paid version.</strong> The app is free while it is in beta.</li><li><strong>Windows.</strong> Undecided. The beta should show whether people want it.</li></ul></section><section class="lane" id="not-planned"><h2>Not planned</h2><p>Decisions that are part of the product.</p><ul><li><strong>Analytics inside the app.</strong> SproutCrew sends nothing about how you use it.</li><li><strong>An account or cloud sync.</strong> Your projects stay on your Mac.</li><li><strong>Running commands on your Mac.</strong> A crew returns text and files. It does not get a shell.</li><li><strong>Intel Macs.</strong> Dropped in 2.1.0.</li></ul></section><section class="lane" id="today"><h2>In the app today</h2><p>The feature set as of 2.1.0, with the version each part arrived in. Details are in the <a href="/changelog">changelog</a> and the <a href="/help">help page</a>.</p><div class="tbl"><table><thead><tr><th scope="col">Area</th><th scope="col">What it does</th><th scope="col">Since</th></tr></thead><tbody><tr><th scope="row">Projects</th><td>Writing and editing, case study, proposal or PRD, research brief, social posts, brainstorm, quick brainstorm. App development behind a switch.</td><td>2.0.0, 2.1.0</td></tr><tr><th scope="row">The review board</th><td>Plan, guardrails and cost on one screen. Any later change needs a new approval.</td><td>2.1.0</td></tr><tr><th scope="row">Two models</th><td>One writes, a different one checks. A model for each role or each step, chosen from a priced list.</td><td>2.0.0, 2.1.0</td></tr><tr><th scope="row">Sources</th><td>Office files, PDFs, scans, pictures, web pages, folders, Notion pages, Google Docs. Requirements and templates are followed; everything else is evidence.</td><td>2.0.0, 2.1.0</td></tr><tr><th scope="row">Web research</th><td>Optional, from the brief alone, with every page listed.</td><td>2.1.0</td></tr><tr><th scope="row">Results</th><td>Word, PowerPoint, PDF, Excel and Keynote files, a decision log and a run report.</td><td>2.0.0, 2.0.5, 2.1.0</td></tr><tr><th scope="row">Limits</th><td>A dollar limit for each project, a token limit across projects, and an estimate before approval.</td><td>2.0.0, 2.1.0</td></tr><tr><th scope="row">Memory</th><td>Notes for one project and for every project, all visible and editable.</td><td>2.0.0, 2.1.0</td></tr><tr><th scope="row">Decisions</th><td>A Decision inbox across projects, with optional Mac alerts.</td><td>2.0.2</td></tr><tr><th scope="row">Sharing</th><td>Send a result to Notion or GitHub, or save it to a folder, after approving the exact content.</td><td>2.0.0, 2.1.0</td></tr><tr><th scope="row">Privacy</th><td>No analytics, no account, keys in the Keychain, a local log you choose to send.</td><td>2.0.0, 2.1.0</td></tr></tbody></table></div></section><p class="fine" style="margin-top:34px">Last updated November 17, 2026. This is a current best guess and it changes when testing or feedback says it should. To ask for something, write to <a href="mailto:hello@sproutcrew.app">hello@sproutcrew.app</a>.</p>
+</main>
+<footer class="wrap launch-footer"><a class="brand" href="/">Sprout Crew</a><p>Made by <a href="https://www.nitishprasad.com/">Nitish Prasad</a>.</p><nav aria-label="Footer"><a href="/getting-started">Get started</a><a href="/help">Help</a><a href="/changelog">Changelog</a><a href="/roadmap">Roadmap</a><a href="/how-its-built">How it is built</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:hello@sproutcrew.app">Contact</a></nav><p>© 2026 Nitish Prasad</p></footer>
+</body>
+</html>

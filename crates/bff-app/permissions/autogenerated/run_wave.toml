@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-run-wave"
+description = "Enables the run_wave command without any pre-configured scope."
+commands.allow = ["run_wave"]
+
+[[permission]]
+identifier = "deny-run-wave"
+description = "Denies the run_wave command without any pre-configured scope."
+commands.deny = ["run_wave"]

@@ -1,0 +1,9 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.5; }
+body { margin: 0 auto; max-width: 52rem; padding: 1rem; }
+.mock-banner { background: #fff3cd; color: #3d2f00; border: 1px solid #e0c36a; padding: .5rem .75rem; border-radius: .4rem; }
+@media (prefers-color-scheme: dark) { .mock-banner { background: #3d2f00; color: #fff3cd; border-color: #8a7220; } }
+ul.items { list-style: none; padding: 0; display: grid; gap: .5rem; }
+ul.items button { width: 100%; text-align: left; padding: .6rem .8rem; border-radius: .4rem; border: 1px solid #8884; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+ul.items button[aria-current="true"] { border-color: currentColor; }
+.detail { margin-top: 1rem; padding: 1rem; border: 1px solid #8884; border-radius: .4rem; }
+.tag { font-size: .8rem; opacity: .75; }

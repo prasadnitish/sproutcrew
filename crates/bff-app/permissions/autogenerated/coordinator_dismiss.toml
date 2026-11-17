@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-coordinator-dismiss"
+description = "Enables the coordinator_dismiss command without any pre-configured scope."
+commands.allow = ["coordinator_dismiss"]
+
+[[permission]]
+identifier = "deny-coordinator-dismiss"
+description = "Denies the coordinator_dismiss command without any pre-configured scope."
+commands.deny = ["coordinator_dismiss"]

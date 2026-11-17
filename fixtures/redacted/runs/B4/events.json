@@ -1,0 +1,120 @@
+[
+  {
+    "method": "configWarning",
+    "params": {}
+  },
+  {
+    "method": "remoteControl/status/changed",
+    "params": {
+      "status": "disabled"
+    }
+  },
+  {
+    "method": "account/updated",
+    "params": {
+      "authMode": "chatgpt",
+      "planType": "prolite"
+    }
+  },
+  {
+    "method": "thread/started",
+    "params": {}
+  },
+  {
+    "method": "warning",
+    "params": {
+      "threadId": "01a194d1-43d2-76b0-886f-ba911471650e"
+    }
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a194d1-43d2-76b0-886f-ba911471650e"
+    }
+  },
+  {
+    "method": "turn/started",
+    "params": {
+      "threadId": "01a194d1-43d2-76b0-886f-ba911471650e",
+      "turn": {
+        "id": "01a194d1-4401-7340-b2b4-67f39c9ac879",
+        "status": "inProgress"
+      }
+    }
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "id": "01a194d1-4758-77f0-91b8-72aa19711adc",
+        "type": "userMessage"
+      },
+      "threadId": "01a194d1-43d2-76b0-886f-ba911471650e",
+      "turnId": "01a194d1-4401-7340-b2b4-67f39c9ac879"
+    }
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "id": "01a194d1-4758-77f0-91b8-72aa19711adc",
+        "type": "userMessage"
+      },
+      "threadId": "01a194d1-43d2-76b0-886f-ba911471650e",
+      "turnId": "01a194d1-4401-7340-b2b4-67f39c9ac879"
+    }
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "id": "[token]",
+        "phase": "final_answer",
+        "type": "agentMessage"
+      },
+      "threadId": "01a194d1-43d2-76b0-886f-ba911471650e",
+      "turnId": "01a194d1-4401-7340-b2b4-67f39c9ac879"
+    }
+  },
+  {
+    "method": "account/rateLimits/updated",
+    "params": {
+      "rateLimits": {
+        "credits": {
+          "balance": "1250.0000000000",
+          "hasCredits": true,
+          "unlimited": false
+        },
+        "individualLimit": null,
+        "limitId": "codex",
+        "limitName": null,
+        "normalModelSlug": null,
+        "planType": "prolite",
+        "primary": {
+          "resetsAt": 1794021146,
+          "usedPercent": 2,
+          "windowDurationMins": 10080
+        },
+        "rateLimitReachedType": null,
+        "secondary": null,
+        "spendControlReached": null
+      }
+    }
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a194d1-43d2-76b0-886f-ba911471650e"
+    }
+  },
+  {
+    "method": "turn/completed",
+    "params": {
+      "threadId": "01a194d1-43d2-76b0-886f-ba911471650e",
+      "turn": {
+        "id": "01a194d1-4401-7340-b2b4-67f39c9ac879",
+        "status": "interrupted"
+      }
+    }
+  }
+]

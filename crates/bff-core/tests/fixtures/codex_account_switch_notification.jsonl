@@ -1,0 +1,2 @@
+{"method":"account/updated","params":{"authMode":"chatgpt","planType":"prolite"}}
+{"method":"account/updated","params":{"authMode":"apikey","planType":null}}

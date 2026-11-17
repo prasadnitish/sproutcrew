@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>How it is built · Sprout Crew</title>
+<meta name="description" content="How SproutCrew is planned, built, reviewed, released and recorded by one developer working with AI agents under review.">
+<link rel="canonical" href="https://www.sproutcrew.app/how-its-built">
+<meta name="theme-color" content="#F7F3EC">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/dm-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/launch.css">
+<meta property="og:type" content="website">
+<meta property="og:title" content="How it is built · Sprout Crew">
+<meta property="og:description" content="How SproutCrew is planned, built, reviewed, released and recorded by one developer working with AI agents under review.">
+<meta property="og:image" content="https://www.sproutcrew.app/assets/review-board-social.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+.log-nav{display:flex;flex-wrap:wrap;gap:8px 18px;margin:8px 0;padding:0;list-style:none}
+.log-nav a{font-size:15px}
+.guide h2{scroll-margin-top:24px}
+.guide h3{font-size:17px;font-weight:600;margin:22px 0 6px;color:var(--ink)}
+.release{border-top:1px solid var(--line);padding-top:8px;margin-top:34px}
+.release h2{margin:18px 0 4px}
+.release-meta{font-size:15px;color:var(--ink-muted);margin:0 0 10px}
+.release ul,.lane ul{padding-left:22px;margin:0}
+.release li,.lane li{padding:3px 0}
+.tag{display:inline-block;font-size:13px;font-weight:600;border:1px solid var(--line);border-radius:999px;padding:1px 10px;margin-left:8px;vertical-align:middle;color:var(--ink)}
+.lane{border-top:1px solid var(--line);margin-top:30px}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin:22px 0;padding:0;list-style:none}
+.facts li{border:1px solid var(--line);border-radius:12px;padding:14px 16px;line-height:1.4}
+.facts b{display:block;font-size:26px;font-weight:600;color:var(--ink);letter-spacing:-.02em}
+.tbl{overflow-x:auto}
+.tbl table{border-collapse:collapse;width:100%;font-size:15px}
+.tbl th,.tbl td{text-align:left;padding:9px 12px 9px 0;border-top:1px solid var(--line);vertical-align:top;line-height:1.55;color:var(--ink-muted)}
+.tbl th{color:var(--ink);font-weight:600}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="launch-nav wrap"><a class="brand" href="/" aria-label="Sprout Crew home"><img src="/assets/mark.svg" width="34" height="46" alt=""><span>Sprout Crew</span></a><nav aria-label="Main navigation"><a href="/#how">How it works</a><a href="/changelog">Changelog</a><a href="/roadmap">Roadmap</a><a class="button small" href="/download">Mac beta <span aria-hidden="true">↗</span></a></nav></header>
+<main id="main" class="wrap guide">
+<p class="eyebrow">How it is built</p>
+<h1>One developer, a crew, and a paper trail.</h1>
+<p class="hero-lede">SproutCrew is made by one person working with AI agents, under the rule the app itself applies: one writes, another checks, and a person approves. This page is the process, from an idea to a signed download.</p>
+<ul class="facts"><li><b>1,161</b>automated tests on the core, run before every commit</li><li><b>79</b>interface tests</li><li><b>7</b>signed builds reviewed, 2 offered publicly</li><li><b>100+</b>numbered entries in the issue log since October 31, 2026</li></ul><p class="fine">Figures are for the 2.1.0 release, November 17, 2026.</p><section class="lane" id="plan"><h2>1. Plan</h2><p><strong>One list, one row for each idea.</strong></p><ul><li>Every idea, fix and launch task is a row in one roadmap, tagged by phase, priority and status. A row moves to Shipped only after the running app has been checked, never when the code is merely written.</li><li>The public <a href="/roadmap">roadmap</a> is a short, curated view of that list.</li><li>Decisions are written down with their date and their reason, so a later change can be traced to who asked for it and why.</li></ul></section><section class="lane" id="build"><h2>2. Build</h2><p><strong>Tests first where money, limits or privacy are involved.</strong></p><ul><li>Parsers, the cost ledger, spending holds, stop rules and redaction get their tests before their code.</li><li>Three checks run before every commit: formatting, the linter with warnings treated as errors, and the full test suite.</li><li>A feature that a person can see updates the <a href="/help">help page</a> in the same commit, so the help never trails the app.</li><li>The core holds every rule about what a crew may do. Text written by a model is treated as data and never becomes a command or a permission.</li></ul></section><section class="lane" id="review"><h2>3. Review</h2><p><strong>A second reader, on purpose.</strong></p><ul><li>SproutCrew is built the way it works. AI coding agents write most of the code, a different model reviews it, and a person approves what goes in.</li><li>Before a release, a reviewer with no network access and no credentials reads every change since the last one. Each finding is checked against the code before it is accepted, then fixed with a test where one fits.</li><li>For 2.1.0 that review found no high-severity issue, one medium and seven low. Seven were fixed before release. The eighth affects only the developer's own Mac.</li></ul></section><section class="lane" id="release"><h2>4. Release</h2><p><strong>Signed, notarized, and checkable by anyone.</strong></p><ul><li>Each build is signed with an Apple Developer ID, uses the hardened runtime and is notarized by Apple. The release script refuses a build in which any bundled program is unsigned or built for the wrong chip.</li><li>The download page shows the SHA-256 of the exact file. The download button stays hidden unless the release record names a file at the expected address with a valid checksum.</li><li>The sources of the open-source parts that require it, and all notices, are published beside each installer.</li><li>The previous version of the site is kept, so a release can be rolled back.</li></ul></section><section class="lane" id="record"><h2>5. Record</h2><p><strong>What was checked, and what was not.</strong></p><ul><li>Every problem found, by the developer or in testing, gets a numbered entry in an issue log: the cause, the fix, what was tested and what was not.</li><li>Each release has a record that ends with the checks nobody has done yet. A build that started correctly is described as a build that started correctly, and nothing more.</li><li>The <a href="/changelog">changelog</a> is written from those records.</li></ul></section><section class="lane" id="listen"><h2>6. Listen</h2><p><strong>Without watching.</strong></p><ul><li>The app has no analytics, so there is no count of users and no record of what anyone does in it. That is a decision, and it is on the roadmap under Not planned.</li><li>What is known comes from people: testers who follow a task sheet on their own Macs and report what broke, and anyone who writes to <a href="mailto:hello@sproutcrew.app">hello@sproutcrew.app</a>.</li><li>When something fails, Settings can export a small log to send. It holds the app version, connection checks and failed steps by kind. It never holds your text, file names or keys.</li></ul></section><section class="lane" id="source"><h2>Read the code</h2><p>The source of each public release is on <a href="https://github.com/prasadnitish/sproutcrew">GitHub</a>, so anyone can check what the app does with their keys and files, or build it themselves. It is source-available under the PolyForm Shield licence: you may read, run, fork and change it, and you may not use it to offer a competing product.</p></section><p class="fine" style="margin-top:34px">The architecture, with diagrams, is in <a href="/case-study">Inside the build</a>.</p>
+</main>
+<footer class="wrap launch-footer"><a class="brand" href="/">Sprout Crew</a><p>Made by <a href="https://www.nitishprasad.com/">Nitish Prasad</a>.</p><nav aria-label="Footer"><a href="/getting-started">Get started</a><a href="/help">Help</a><a href="/changelog">Changelog</a><a href="/roadmap">Roadmap</a><a href="/how-its-built">How it is built</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="mailto:hello@sproutcrew.app">Contact</a></nav><p>© 2026 Nitish Prasad</p></footer>
+</body>
+</html>

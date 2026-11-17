@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-outbox-approve"
+description = "Enables the outbox_approve command without any pre-configured scope."
+commands.allow = ["outbox_approve"]
+
+[[permission]]
+identifier = "deny-outbox-approve"
+description = "Denies the outbox_approve command without any pre-configured scope."
+commands.deny = ["outbox_approve"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-memory-remove"
+description = "Enables the memory_remove command without any pre-configured scope."
+commands.allow = ["memory_remove"]
+
+[[permission]]
+identifier = "deny-memory-remove"
+description = "Denies the memory_remove command without any pre-configured scope."
+commands.deny = ["memory_remove"]

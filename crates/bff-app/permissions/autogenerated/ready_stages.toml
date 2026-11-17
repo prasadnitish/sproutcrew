@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ready-stages"
+description = "Enables the ready_stages command without any pre-configured scope."
+commands.allow = ["ready_stages"]
+
+[[permission]]
+identifier = "deny-ready-stages"
+description = "Denies the ready_stages command without any pre-configured scope."
+commands.deny = ["ready_stages"]

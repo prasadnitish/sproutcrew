@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-decision-inbox"
+description = "Enables the decision_inbox command without any pre-configured scope."
+commands.allow = ["decision_inbox"]
+
+[[permission]]
+identifier = "deny-decision-inbox"
+description = "Denies the decision_inbox command without any pre-configured scope."
+commands.deny = ["decision_inbox"]

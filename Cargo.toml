@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["crates/bff-core", "crates/m0", "crates/bff-app"]
+
+[workspace.package]
+edition = "2021"
+version = "0.0.0"
+publish = false
+
+# Rust 1.97's post-link stripping produces dylibs that Xcode 27's dyld rejects
+# with "mis-aligned LINKEDIT string pool". Keep symbols until the toolchain is upgraded.
+[profile.release]
+strip = "none"
+
+[profile.release.build-override]
+strip = "none"

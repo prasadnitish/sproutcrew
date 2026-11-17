@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-attention-status"
+description = "Enables the attention_status command without any pre-configured scope."
+commands.allow = ["attention_status"]
+
+[[permission]]
+identifier = "deny-attention-status"
+description = "Denies the attention_status command without any pre-configured scope."
+commands.deny = ["attention_status"]

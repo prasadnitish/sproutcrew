@@ -1,0 +1,25 @@
+target/
+*.log
+logs/
+
+# Raw provider output. Only redacted fixtures are committed.
+fixtures/raw/
+docs/m0/raw/
+m0-runs/
+
+.DS_Store
+
+# Unused generated icon sets
+crates/bff-app/icons/android/
+crates/bff-app/icons/ios/
+crates/bff-app/gen/
+
+# Frontend
+node_modules/
+crates/bff-app/ui/dist/
+
+# Typst, fetched by scripts/fetch-helpers.sh
+crates/bff-app/binaries/
+
+# Nitish's Google OAuth client for Google Docs. Kept out of commits.
+crates/bff-core/google-client.json

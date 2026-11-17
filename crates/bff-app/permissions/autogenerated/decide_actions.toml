@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-decide-actions"
+description = "Enables the decide_actions command without any pre-configured scope."
+commands.allow = ["decide_actions"]
+
+[[permission]]
+identifier = "deny-decide-actions"
+description = "Denies the decide_actions command without any pre-configured scope."
+commands.deny = ["decide_actions"]

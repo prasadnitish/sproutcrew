@@ -1,0 +1,78 @@
+{
+  "after": {
+    "balance": "1250",
+    "windows": [
+      {
+        "bucket": "codex",
+        "used_percent": 2,
+        "window_mins": 10080
+      }
+    ]
+  },
+  "artifact_chars": 864,
+  "artifact_head": "**Days 1\u20132:** Recruit three to five developers with varied experience and select a small set of representative, low-risk tasks for the two-week pilot, such as bug fixes, tests, and routine enhancements. Record baseline delivery time and def",
+  "artifacts": [
+    {
+      "file": "prepare-d36336e5.md",
+      "from_task": "t1",
+      "name": "prepare",
+      "sha256": "d36336e5713bc2f968153a07b91f24225595c390b84843b3c7a25c3402525aec"
+    }
+  ],
+  "before": {
+    "balance": "1250",
+    "windows": [
+      {
+        "bucket": "codex",
+        "used_percent": 2,
+        "window_mins": 10080
+      }
+    ]
+  },
+  "engine": "live",
+  "meters": {
+    "api_dollars": "unknown",
+    "plan_window": "codex 2%",
+    "tokens": "29663"
+  },
+  "plan": {
+    "brief": "Write a one-paragraph plan, under 150 words, for a two-week pilot of a small team trying an AI coding assistant.",
+    "stages": [
+      {
+        "id": "prepare",
+        "owner_role": "pilot_lead",
+        "title": "Days 1\u20132: Select a small team and representative tasks, record baseline delivery time and defects, set code and data safeguards, and introduce the assistant."
+      },
+      {
+        "id": "trial",
+        "owner_role": "pilot_lead",
+        "title": "Days 3\u20139: Use the assistant on scoped tasks with human review and tests; track time, defects, costs, and developer feedback."
+      },
+      {
+        "id": "evaluate",
+        "owner_role": "pilot_lead",
+        "title": "Day 10: Compare results with baseline, review security and usability concerns, and recommend adopting, adjusting, or stopping the pilot."
+      }
+    ],
+    "team": [
+      {
+        "effort": "medium",
+        "model": "gpt-6.1-sol",
+        "role": "pilot_lead",
+        "route": "R1"
+      }
+    ]
+  },
+  "problems": [],
+  "propose": {
+    "Ok": "ok"
+  },
+  "run": {
+    "Ok": {
+      "artifact": true,
+      "note": "completed",
+      "task": "t1"
+    }
+  },
+  "run_before_approval_refused": true
+}

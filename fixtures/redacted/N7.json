@@ -1,0 +1,96 @@
+{
+  "at": 1793497036,
+  "check": "N7",
+  "variants": {
+    "stdin_text": {
+      "event_kinds": {
+        "assistant/": 1,
+        "result/success": 1,
+        "system/init": 1
+      },
+      "exit_code": 0,
+      "init": {
+        "api_key_source": "none",
+        "mcp_server_errors": 0,
+        "mcp_servers": [],
+        "model": "claude-haiku-5-5",
+        "permission_mode": "dontAsk",
+        "plugin_errors": 0,
+        "tools": [
+          "Glob",
+          "Grep",
+          "Read"
+        ],
+        "version": "2.1.316"
+      },
+      "init_before_prompt": null,
+      "result": {
+        "duration_ms": 387,
+        "has_structured_output": false,
+        "is_error": false,
+        "num_turns": 0,
+        "permission_denials": [],
+        "stop_reason": null,
+        "subtype": "success"
+      },
+      "stderr": {
+        "first_words": [],
+        "lines": 0
+      },
+      "tokens": {
+        "cache_creation": 0,
+        "cache_read": 0,
+        "input": 0,
+        "output": 0
+      },
+      "tokens_status": "Reported",
+      "usage_text_parsed": true,
+      "violations": []
+    },
+    "stream_json_input": {
+      "event_kinds": {
+        "assistant/": 1,
+        "result/success": 1,
+        "system/init": 1
+      },
+      "exit_code": 0,
+      "init": {
+        "api_key_source": "none",
+        "mcp_server_errors": 0,
+        "mcp_servers": [],
+        "model": "claude-haiku-5-5",
+        "permission_mode": "dontAsk",
+        "plugin_errors": 0,
+        "tools": [
+          "Glob",
+          "Grep",
+          "Read"
+        ],
+        "version": "2.1.316"
+      },
+      "init_before_prompt": false,
+      "result": {
+        "duration_ms": 296,
+        "has_structured_output": false,
+        "is_error": false,
+        "num_turns": 0,
+        "permission_denials": [],
+        "stop_reason": null,
+        "subtype": "success"
+      },
+      "stderr": {
+        "first_words": [],
+        "lines": 0
+      },
+      "tokens": {
+        "cache_creation": 0,
+        "cache_read": 0,
+        "input": 0,
+        "output": 0
+      },
+      "tokens_status": "Reported",
+      "usage_text_parsed": true,
+      "violations": []
+    }
+  }
+}

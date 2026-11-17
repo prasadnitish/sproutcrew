@@ -1,0 +1,3 @@
+DM Sans, regular variable weights 400–700. Latin subset, unmodified.
+https://fonts.gstatic.com/s/dmsans/v17/rP2Yp2ywxg089UriI5-g4vlH9VoD8Cmcqbu0-K6z9mXg.woff2
+https://github.com/google/fonts/tree/main/ofl/dmsans

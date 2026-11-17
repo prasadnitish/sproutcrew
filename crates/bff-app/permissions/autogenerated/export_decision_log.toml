@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-export-decision-log"
+description = "Enables the export_decision_log command without any pre-configured scope."
+commands.allow = ["export_decision_log"]
+
+[[permission]]
+identifier = "deny-export-decision-log"
+description = "Denies the export_decision_log command without any pre-configured scope."
+commands.deny = ["export_decision_log"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-own-ai"
+description = "Enables the save_own_ai command without any pre-configured scope."
+commands.allow = ["save_own_ai"]
+
+[[permission]]
+identifier = "deny-save-own-ai"
+description = "Denies the save_own_ai command without any pre-configured scope."
+commands.deny = ["save_own_ai"]

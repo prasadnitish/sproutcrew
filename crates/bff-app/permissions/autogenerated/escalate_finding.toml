@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-escalate-finding"
+description = "Enables the escalate_finding command without any pre-configured scope."
+commands.allow = ["escalate_finding"]
+
+[[permission]]
+identifier = "deny-escalate-finding"
+description = "Denies the escalate_finding command without any pre-configured scope."
+commands.deny = ["escalate_finding"]

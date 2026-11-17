@@ -1,0 +1,190 @@
+[
+  {
+    "method": "configWarning",
+    "params": {}
+  },
+  {
+    "method": "remoteControl/status/changed",
+    "params": {
+      "status": "disabled"
+    }
+  },
+  {
+    "method": "account/updated",
+    "params": {
+      "authMode": "chatgpt",
+      "planType": "prolite"
+    }
+  },
+  {
+    "method": "deprecationNotice",
+    "params": {}
+  },
+  {
+    "method": "warning",
+    "params": {
+      "threadId": "01a194d0-6706-7b50-8532-ce16fc808808"
+    }
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a194d0-6706-7b50-8532-ce16fc808808"
+    }
+  },
+  {
+    "method": "thread/tokenUsage/updated",
+    "params": {
+      "threadId": "01a194d0-6706-7b50-8532-ce16fc808808",
+      "tokenUsage": {
+        "last": {
+          "cacheWriteInputTokens": 0,
+          "cachedInputTokens": 0,
+          "inputTokens": 8714,
+          "outputTokens": 20,
+          "reasoningOutputTokens": 0,
+          "totalTokens": 8734
+        },
+        "modelContextWindow": 258400,
+        "total": {
+          "cacheWriteInputTokens": 0,
+          "cachedInputTokens": 0,
+          "inputTokens": 8714,
+          "outputTokens": 20,
+          "reasoningOutputTokens": 0,
+          "totalTokens": 8734
+        }
+      },
+      "turnId": "01a194d0-6736-76c3-a484-ce31cae80803"
+    }
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a194d0-6706-7b50-8532-ce16fc808808"
+    }
+  },
+  {
+    "method": "turn/started",
+    "params": {
+      "threadId": "01a194d0-6706-7b50-8532-ce16fc808808",
+      "turn": {
+        "id": "01a194d1-cff6-71f3-bef8-94e6c7cf0a9e",
+        "status": "inProgress"
+      }
+    }
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "id": "01a194d1-d0bd-7000-84fc-b93f456ebb29",
+        "type": "userMessage"
+      },
+      "threadId": "01a194d0-6706-7b50-8532-ce16fc808808",
+      "turnId": "01a194d1-cff6-71f3-bef8-94e6c7cf0a9e"
+    }
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "id": "01a194d1-d0bd-7000-84fc-b93f456ebb29",
+        "type": "userMessage"
+      },
+      "threadId": "01a194d0-6706-7b50-8532-ce16fc808808",
+      "turnId": "01a194d1-cff6-71f3-bef8-94e6c7cf0a9e"
+    }
+  },
+  {
+    "method": "item/started",
+    "params": {
+      "item": {
+        "id": "[token]",
+        "phase": "final_answer",
+        "type": "agentMessage"
+      },
+      "threadId": "01a194d0-6706-7b50-8532-ce16fc808808",
+      "turnId": "01a194d1-cff6-71f3-bef8-94e6c7cf0a9e"
+    }
+  },
+  {
+    "method": "item/completed",
+    "params": {
+      "item": {
+        "id": "[token]",
+        "phase": "final_answer",
+        "type": "agentMessage"
+      },
+      "threadId": "01a194d0-6706-7b50-8532-ce16fc808808",
+      "turnId": "01a194d1-cff6-71f3-bef8-94e6c7cf0a9e"
+    }
+  },
+  {
+    "method": "thread/tokenUsage/updated",
+    "params": {
+      "threadId": "01a194d0-6706-7b50-8532-ce16fc808808",
+      "tokenUsage": {
+        "last": {
+          "cacheWriteInputTokens": 0,
+          "cachedInputTokens": 0,
+          "inputTokens": 8700,
+          "outputTokens": 5,
+          "reasoningOutputTokens": 0,
+          "totalTokens": 8705
+        },
+        "modelContextWindow": 258400,
+        "total": {
+          "cacheWriteInputTokens": 0,
+          "cachedInputTokens": 0,
+          "inputTokens": 17414,
+          "outputTokens": 25,
+          "reasoningOutputTokens": 0,
+          "totalTokens": 17439
+        }
+      },
+      "turnId": "01a194d1-cff6-71f3-bef8-94e6c7cf0a9e"
+    }
+  },
+  {
+    "method": "account/rateLimits/updated",
+    "params": {
+      "rateLimits": {
+        "credits": {
+          "balance": "1250.0000000000",
+          "hasCredits": true,
+          "unlimited": false
+        },
+        "individualLimit": null,
+        "limitId": "codex",
+        "limitName": null,
+        "normalModelSlug": null,
+        "planType": "prolite",
+        "primary": {
+          "resetsAt": 1794021146,
+          "usedPercent": 2,
+          "windowDurationMins": 10080
+        },
+        "rateLimitReachedType": null,
+        "secondary": null,
+        "spendControlReached": null
+      }
+    }
+  },
+  {
+    "method": "thread/status/changed",
+    "params": {
+      "threadId": "01a194d0-6706-7b50-8532-ce16fc808808"
+    }
+  },
+  {
+    "method": "turn/completed",
+    "params": {
+      "threadId": "01a194d0-6706-7b50-8532-ce16fc808808",
+      "turn": {
+        "id": "01a194d1-cff6-71f3-bef8-94e6c7cf0a9e",
+        "status": "completed"
+      }
+    }
+  }
+]

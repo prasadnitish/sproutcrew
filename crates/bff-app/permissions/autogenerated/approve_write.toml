@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-approve-write"
+description = "Enables the approve_write command without any pre-configured scope."
+commands.allow = ["approve_write"]
+
+[[permission]]
+identifier = "deny-approve-write"
+description = "Denies the approve_write command without any pre-configured scope."
+commands.deny = ["approve_write"]

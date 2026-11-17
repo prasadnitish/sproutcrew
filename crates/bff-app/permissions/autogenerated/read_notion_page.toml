@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-read-notion-page"
+description = "Enables the read_notion_page command without any pre-configured scope."
+commands.allow = ["read_notion_page"]
+
+[[permission]]
+identifier = "deny-read-notion-page"
+description = "Denies the read_notion_page command without any pre-configured scope."
+commands.deny = ["read_notion_page"]

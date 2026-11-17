@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-send-write"
+description = "Enables the send_write command without any pre-configured scope."
+commands.allow = ["send_write"]
+
+[[permission]]
+identifier = "deny-send-write"
+description = "Denies the send_write command without any pre-configured scope."
+commands.deny = ["send_write"]

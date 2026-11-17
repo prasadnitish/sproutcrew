@@ -1,0 +1,247 @@
+{
+  "checks": [
+    {
+      "check": "no delegation, web search, MCP, dynamic tool, or hook activity",
+      "detail": "[]",
+      "passed": true
+    },
+    {
+      "check": "nothing is left in the server's process group after shutdown",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "turn completed",
+      "detail": "\"completed\"",
+      "passed": true
+    },
+    {
+      "check": "a replayed baseline was observed on resume",
+      "detail": "if false, resume did not replay usage and history may be counted",
+      "passed": true
+    },
+    {
+      "check": "the delta excludes the replayed baseline",
+      "detail": "delta Some(8705), baseline Some(8734)",
+      "passed": true
+    },
+    {
+      "check": "scenario ran to completion",
+      "detail": "",
+      "passed": true
+    }
+  ],
+  "claude_window_deltas": [
+    {
+      "after": 8.0,
+      "before": 8.0,
+      "delta": 0.0,
+      "window": "session"
+    },
+    {
+      "after": 20.0,
+      "before": 20.0,
+      "delta": 0.0,
+      "window": "week (all models)"
+    },
+    {
+      "after": 0.0,
+      "before": 0.0,
+      "delta": 0.0,
+      "window": "week (Fable)"
+    }
+  ],
+  "effort": "low",
+  "elapsed_seconds": 4.373218167,
+  "evidence": {
+    "after_shutdown": {
+      "group_members_left": 0,
+      "stderr_lines": 2
+    },
+    "descendants_while_running": {
+      "escaped_group": 0,
+      "group_members": 1
+    },
+    "elapsed_ms": 1700,
+    "extra": {
+      "at": 1793498142,
+      "cumulative_total_after": 17439,
+      "delta_total": 8705,
+      "replayed_baseline_total": 8734
+    },
+    "interrupt_ack_ms": null,
+    "interrupted_by_harness": false,
+    "item_kinds": {
+      "agentMessage": 1,
+      "userMessage": 1
+    },
+    "items": [
+      {
+        "command": null,
+        "exit_code": null,
+        "kind": "userMessage",
+        "phase": null,
+        "status": null,
+        "text_chars": null,
+        "text_sha256": null
+      },
+      {
+        "command": null,
+        "exit_code": null,
+        "kind": "agentMessage",
+        "phase": "final_answer",
+        "status": null,
+        "text_chars": 2,
+        "text_sha256": "565339bc4d33d72817b583024112eb7f5cdf3e5eef0252d6ec1b9c9a94e12bb3"
+      }
+    ],
+    "methods": {
+      "account/rateLimits/updated": 1,
+      "item/agentMessage/delta": 1,
+      "item/completed": 2,
+      "item/started": 2,
+      "thread/status/changed": 2,
+      "thread/tokenUsage/updated": 1,
+      "turn/completed": 1,
+      "turn/started": 1
+    },
+    "model_split_uncertain": false,
+    "parse_errors": [],
+    "server_requests_refused": [],
+    "status": "completed",
+    "terminal_ms": 1294,
+    "thread": {
+      "notifications_during_resume": [
+        "configWarning",
+        "remoteControl/status/changed",
+        "account/updated",
+        "deprecationNotice",
+        "warning",
+        "thread/status/changed",
+        "thread/tokenUsage/updated"
+      ],
+      "resume_call_ms": 226,
+      "resumed_from_run": "B2"
+    },
+    "timed_out": false,
+    "tokens": {
+      "cached_input": 0,
+      "input": 8700,
+      "output": 5,
+      "reasoning_output": 0,
+      "total": 8705
+    },
+    "tokens_status": "Reported (cumulative total minus baseline)",
+    "violations": []
+  },
+  "id": "B5",
+  "model": "gpt-6-luna",
+  "other_clients": {
+    "chatgpt_codex_app_processes": 0,
+    "claude_cli_processes": 5,
+    "claude_desktop_processes": 31,
+    "codex_cli_processes_outside_chatgpt_app": 0,
+    "codexbar": 1
+  },
+  "pins": {
+    "claude": "2.1.316",
+    "codex": "0.166.0"
+  },
+  "route": "Codex",
+  "started_at": 1793498138,
+  "status": "Done",
+  "stop": null,
+  "usage_after": {
+    "claude": {
+      "at": 1793498143,
+      "auth_method": "claude.ai",
+      "usage_call_tokens": 0,
+      "windows": [
+        {
+          "label": "session",
+          "percent": 8.0,
+          "resets": "Oct 31 at 11:10pm (America/Los_Angeles)"
+        },
+        {
+          "label": "week (all models)",
+          "percent": 20.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        },
+        {
+          "label": "week (Fable)",
+          "percent": 0.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        }
+      ]
+    },
+    "codex": {
+      "account": {
+        "kind": "chatgpt",
+        "plan_type": "prolite"
+      },
+      "account_hash": "9df5fe5ac52e",
+      "at": 1793498144,
+      "balance": "1250.0000000000",
+      "balance_state": "known 1250",
+      "buckets": [
+        {
+          "bucket": "codex",
+          "primary": {
+            "resets_at": 1794021146,
+            "used_percent": 2,
+            "window_mins": 10080
+          },
+          "secondary": null
+        }
+      ],
+      "ordinary_usage_allowed": true
+    }
+  },
+  "usage_before": {
+    "claude": {
+      "at": 1793498137,
+      "auth_method": "claude.ai",
+      "usage_call_tokens": 0,
+      "windows": [
+        {
+          "label": "session",
+          "percent": 8.0,
+          "resets": "Oct 31 at 11:10pm (America/Los_Angeles)"
+        },
+        {
+          "label": "week (all models)",
+          "percent": 20.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        },
+        {
+          "label": "week (Fable)",
+          "percent": 0.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        }
+      ]
+    },
+    "codex": {
+      "account": {
+        "kind": "chatgpt",
+        "plan_type": "prolite"
+      },
+      "account_hash": "9df5fe5ac52e",
+      "at": 1793498138,
+      "balance": "1250.0000000000",
+      "balance_state": "known 1250",
+      "buckets": [
+        {
+          "bucket": "codex",
+          "primary": {
+            "resets_at": 1794021146,
+            "used_percent": 2,
+            "window_mins": 10080
+          },
+          "secondary": null
+        }
+      ],
+      "ordinary_usage_allowed": true
+    }
+  },
+  "what": "thread/resume then one short turn"
+}

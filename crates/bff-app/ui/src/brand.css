@@ -1,0 +1,37 @@
+@font-face {
+  font-family: 'DM Sans';
+  src: url('/brand/fonts/dm-sans-latin.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+}
+.brand-mark { display: block; width: 32px; height: auto; flex: none; color: var(--brand-ink); }
+.brand-leaves-apricot .brand-leaf { fill: var(--brand-apricot); }
+.brand-leaves-green .brand-leaf { fill: var(--sc-color-leaf-green); }
+.brand-lockup { display: inline-flex; align-items: center; gap: var(--s-2); color: var(--brand-ink); font-family: var(--ui); letter-spacing: -.045em; font-weight: var(--w-semibold); }
+.brand-lockup .brand-mark { width: 20px; }
+.sidebar-title.brand-lockup { font-size: var(--t-sub); }
+.splash { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; overflow: hidden; background: var(--base); padding: var(--s-4); }
+.splash-identity { display: grid; justify-items: center; width: 100%; text-align: center; color: var(--brand-ink); }
+.splash-symbol { position: relative; display: grid; place-items: center; margin-bottom: var(--s-3); }
+.splash-symbol .brand-mark { width: clamp(88px, 16vw, 132px); overflow: visible; }
+.splash-wordmark { font-family: var(--ui); font-size: clamp(40px, 7vw, 64px); font-weight: 600; letter-spacing: -.06em; line-height: 1.08; margin: 0; }
+.splash-tagline { font-size: var(--t-body-lg); color: var(--ink-muted); margin: var(--s-3) 0 0; line-height: var(--lh-prose); }
+.splash-credit { font-size: var(--t-micro); color: var(--ink-muted); margin: var(--s-5) 0 0; }
+.splash-seed { position: absolute; width: 12px; height: 12px; border-radius: var(--r-pill); background: var(--brand-apricot); bottom: 18px; opacity: 0; }
+.splash-skip { position: absolute; bottom: var(--s-4); min-height: 36px; border-radius: var(--r-pill); font-size: var(--t-body); }
+.splash-identity .brand-leaf { transform-box: fill-box; transform-origin: 50% 100%; }
+@media (prefers-reduced-motion: no-preference) {
+  .splash-identity:not(.motion-reduced) .splash-seed { animation: sprout-seed 650ms var(--ease-out) both; }
+  .splash-identity:not(.motion-reduced) .brand-ribbon { animation: sprout-ribbon 850ms 180ms var(--ease-out) both; }
+  .splash-identity:not(.motion-reduced) .brand-leaf-left { animation: sprout-leaf 650ms 550ms var(--ease-spring) both; }
+  .splash-identity:not(.motion-reduced) .brand-leaf-right { animation: sprout-leaf 700ms 680ms var(--ease-spring) both; }
+  .splash-identity:not(.motion-reduced) .splash-wordmark { animation: sprout-rise 650ms 800ms var(--ease-out) both; }
+  .splash-identity:not(.motion-reduced) .splash-tagline { animation: sprout-rise 550ms 1020ms var(--ease-out) both; }
+  .splash-identity:not(.motion-reduced) .splash-credit { animation: sprout-rise 450ms 1100ms var(--ease-out) both; }
+}
+@keyframes sprout-seed { 0% { opacity: 0; transform: translateY(18px) scale(.5); } 35% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-42px) scale(.35); } }
+@keyframes sprout-ribbon { from { opacity: 0; clip-path: inset(100% 0 0 0); transform: translateY(10px); } to { opacity: 1; clip-path: inset(0); transform: translateY(0); } }
+@keyframes sprout-leaf { from { opacity: 0; transform: rotate(-14deg) scale(.15); } to { opacity: 1; transform: rotate(0) scale(1); } }
+@keyframes sprout-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .splash-identity * { animation: none !important; } }

@@ -1,0 +1,3 @@
+export const headline = "The review board for your AI agents.";
+export const audience = "For people who already run agents — and are tired of babysitting them.";
+export const pitch = "Sprout Crew is a Mac app that runs a crew of AI agents — Claude, Codex, and others — under supervision. You approve the plan, and the approval is a hash: change anything material and it invalidates itself. Agents review each other's work across providers, untrusted content is kept separate from action authority, and every run carries an honest, three-meter cost ledger that reserves budget before it spends. It exists because the documented failure mode of agents isn't weakness — it's irreversibility without a checkpoint. Sprout Crew is the checkpoint.";

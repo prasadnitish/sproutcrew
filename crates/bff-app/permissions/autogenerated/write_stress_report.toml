@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-write-stress-report"
+description = "Enables the write_stress_report command without any pre-configured scope."
+commands.allow = ["write_stress_report"]
+
+[[permission]]
+identifier = "deny-write-stress-report"
+description = "Denies the write_stress_report command without any pre-configured scope."
+commands.deny = ["write_stress_report"]

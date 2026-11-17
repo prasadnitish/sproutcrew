@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-add-source-results"
+description = "Enables the add_source_results command without any pre-configured scope."
+commands.allow = ["add_source_results"]
+
+[[permission]]
+identifier = "deny-add-source-results"
+description = "Denies the add_source_results command without any pre-configured scope."
+commands.deny = ["add_source_results"]

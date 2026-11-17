@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-route-models"
+description = "Enables the route_models command without any pre-configured scope."
+commands.allow = ["route_models"]
+
+[[permission]]
+identifier = "deny-route-models"
+description = "Denies the route_models command without any pre-configured scope."
+commands.deny = ["route_models"]

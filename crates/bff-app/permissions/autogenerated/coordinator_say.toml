@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-coordinator-say"
+description = "Enables the coordinator_say command without any pre-configured scope."
+commands.allow = ["coordinator_say"]
+
+[[permission]]
+identifier = "deny-coordinator-say"
+description = "Denies the coordinator_say command without any pre-configured scope."
+commands.deny = ["coordinator_say"]

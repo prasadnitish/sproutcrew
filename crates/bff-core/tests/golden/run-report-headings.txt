@@ -1,0 +1,8 @@
+## Approved plan and hash
+## Policy matrix in force
+## Approvals and triggers
+## Execution attempts and outcomes
+## Peer-review findings and dispositions
+## Decision log
+## Artifacts and base hashes
+## Three-meter cost summary

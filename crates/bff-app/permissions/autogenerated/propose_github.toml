@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-propose-github"
+description = "Enables the propose_github command without any pre-configured scope."
+commands.allow = ["propose_github"]
+
+[[permission]]
+identifier = "deny-propose-github"
+description = "Denies the propose_github command without any pre-configured scope."
+commands.deny = ["propose_github"]

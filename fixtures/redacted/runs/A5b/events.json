@@ -1,0 +1,150 @@
+[
+  {
+    "apiKeySource": "none",
+    "claude_code_version": "2.1.316",
+    "model": "claude-haiku-5-5",
+    "permissionMode": "dontAsk",
+    "session_id": "9301bc0b-40bd-40d1-9160-9ede88e60faa",
+    "subtype": "init",
+    "tools": [
+      "Read"
+    ],
+    "type": "system"
+  },
+  {
+    "session_id": "9301bc0b-40bd-40d1-9160-9ede88e60faa",
+    "subtype": "status",
+    "type": "system"
+  },
+  {
+    "event": {
+      "message": {
+        "id": "msg_011CgbNCWUm7N21QBBkprPNp",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 350,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 350,
+          "cache_read_input_tokens": 3653,
+          "input_tokens": 2,
+          "output_tokens": 9
+        }
+      },
+      "type": "message_start"
+    },
+    "session_id": "9301bc0b-40bd-40d1-9160-9ede88e60faa",
+    "ttft_ms": 422,
+    "type": "stream_event"
+  },
+  {
+    "event": {
+      "index": 0,
+      "type": "content_block_start"
+    },
+    "session_id": "9301bc0b-40bd-40d1-9160-9ede88e60faa",
+    "type": "stream_event"
+  },
+  {
+    "estimated_tokens": 50,
+    "estimated_tokens_delta": 50,
+    "session_id": "9301bc0b-40bd-40d1-9160-9ede88e60faa",
+    "subtype": "thinking_tokens",
+    "type": "system"
+  },
+  {
+    "event": {
+      "delta": {
+        "estimated_tokens": 50,
+        "type": "thinking_delta"
+      },
+      "index": 0,
+      "type": "content_block_delta"
+    },
+    "session_id": "9301bc0b-40bd-40d1-9160-9ede88e60faa",
+    "type": "stream_event"
+  },
+  {
+    "event": {
+      "delta": {
+        "type": "thinking_delta"
+      },
+      "index": 0,
+      "type": "content_block_delta"
+    },
+    "session_id": "9301bc0b-40bd-40d1-9160-9ede88e60faa",
+    "type": "stream_event"
+  },
+  {
+    "estimated_tokens": 198,
+    "estimated_tokens_delta": 148,
+    "session_id": "9301bc0b-40bd-40d1-9160-9ede88e60faa",
+    "subtype": "thinking_tokens",
+    "type": "system"
+  },
+  {
+    "event": {
+      "delta": {
+        "type": "signature_delta"
+      },
+      "index": 0,
+      "type": "content_block_delta"
+    },
+    "session_id": "9301bc0b-40bd-40d1-9160-9ede88e60faa",
+    "type": "stream_event"
+  },
+  {
+    "message": {
+      "content": [
+        {
+          "type": "thinking"
+        }
+      ],
+      "id": "msg_011CgbNCWUm7N21QBBkprPNp",
+      "model": "claude-haiku-5-5",
+      "stop_reason": null,
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 350,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 350,
+        "cache_read_input_tokens": 3653,
+        "inference_geo": "global",
+        "input_tokens": 2,
+        "output_tokens": 9,
+        "service_tier": "standard",
+        "speed": "standard"
+      }
+    },
+    "session_id": "9301bc0b-40bd-40d1-9160-9ede88e60faa",
+    "type": "assistant"
+  },
+  {
+    "event": {
+      "index": 0,
+      "type": "content_block_stop"
+    },
+    "session_id": "9301bc0b-40bd-40d1-9160-9ede88e60faa",
+    "type": "stream_event"
+  },
+  {
+    "event": {
+      "index": 1,
+      "type": "content_block_start"
+    },
+    "session_id": "9301bc0b-40bd-40d1-9160-9ede88e60faa",
+    "type": "stream_event"
+  },
+  {
+    "event": {
+      "delta": {
+        "type": "text_delta"
+      },
+      "index": 1,
+      "type": "content_block_delta"
+    },
+    "session_id": "9301bc0b-40bd-40d1-9160-9ede88e60faa",
+    "type": "stream_event"
+  }
+]

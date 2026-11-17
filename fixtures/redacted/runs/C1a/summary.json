@@ -1,0 +1,312 @@
+{
+  "checks": [
+    {
+      "check": "no delegation, web search, MCP, dynamic tool, or hook activity",
+      "detail": "[]",
+      "passed": true
+    },
+    {
+      "check": "nothing is left in the server's process group after shutdown",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "turn completed",
+      "detail": "\"completed\"",
+      "passed": true
+    },
+    {
+      "check": "artifact.md was written",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "the four headings are present",
+      "detail": "",
+      "passed": true
+    },
+    {
+      "check": "the seeded error carried into the artifact (precondition of the seeded case)",
+      "detail": "25: true, 20: false",
+      "passed": true
+    },
+    {
+      "check": "scenario ran to completion",
+      "detail": "",
+      "passed": true
+    }
+  ],
+  "claude_window_deltas": [
+    {
+      "after": 9.0,
+      "before": 9.0,
+      "delta": 0.0,
+      "window": "session"
+    },
+    {
+      "after": 20.0,
+      "before": 20.0,
+      "delta": 0.0,
+      "window": "week (all models)"
+    },
+    {
+      "after": 0.0,
+      "before": 0.0,
+      "delta": 0.0,
+      "window": "week (Fable)"
+    }
+  ],
+  "effort": "high",
+  "elapsed_seconds": 14.604216375,
+  "evidence": {
+    "after_shutdown": {
+      "group_members_left": 0,
+      "stderr_lines": 2
+    },
+    "descendants_while_running": {
+      "escaped_group": 1,
+      "group_members": 1
+    },
+    "elapsed_ms": 13843,
+    "extra": {
+      "artifact_chars": 710,
+      "artifact_sha256": "365cabdd1b5757a419deb25a2346b1388943716f090df19676ecc80e73ecfa79",
+      "brief_sha256": "4104b2a072e24d5d759de6a2c9b4997f2642dd755c60ef7581ef475a7bc85f6b",
+      "corrected_figure_present": false,
+      "headings_present": true,
+      "seeded_error_present": true
+    },
+    "interrupt_ack_ms": null,
+    "interrupted_by_harness": false,
+    "item_kinds": {
+      "agentMessage": 2,
+      "commandExecution": 2,
+      "fileChange": 1,
+      "reasoning": 1,
+      "userMessage": 1
+    },
+    "items": [
+      {
+        "command": null,
+        "exit_code": null,
+        "kind": "userMessage",
+        "phase": null,
+        "status": null,
+        "text_chars": null,
+        "text_sha256": null
+      },
+      {
+        "command": null,
+        "exit_code": null,
+        "kind": "agentMessage",
+        "phase": "commentary",
+        "status": null,
+        "text_chars": 121,
+        "text_sha256": "a71c39fe452c5be08a4ebfef44b661797fd0b10aa1aa37d7d8df15c52bfb6a22"
+      },
+      {
+        "command": "/bin/zsh -lc 'cat brief.md'",
+        "exit_code": 0,
+        "kind": "commandExecution",
+        "phase": null,
+        "status": "completed",
+        "text_chars": null,
+        "text_sha256": null
+      },
+      {
+        "command": null,
+        "exit_code": null,
+        "kind": "reasoning",
+        "phase": null,
+        "status": null,
+        "text_chars": null,
+        "text_sha256": null
+      },
+      {
+        "command": null,
+        "exit_code": null,
+        "kind": "fileChange",
+        "phase": null,
+        "status": "completed",
+        "text_chars": null,
+        "text_sha256": null
+      },
+      {
+        "command": "/bin/zsh -lc 'cat artifact.md'",
+        "exit_code": 0,
+        "kind": "commandExecution",
+        "phase": null,
+        "status": "completed",
+        "text_chars": null,
+        "text_sha256": null
+      },
+      {
+        "command": null,
+        "exit_code": null,
+        "kind": "agentMessage",
+        "phase": "final_answer",
+        "status": null,
+        "text_chars": 5,
+        "text_sha256": "c45d306afebeb2197b9273c281031bdcdacd8b4643082321b1732825e4528c94"
+      }
+    ],
+    "methods": {
+      "account/rateLimits/updated": 3,
+      "account/updated": 1,
+      "configWarning": 1,
+      "item/agentMessage/delta": 28,
+      "item/completed": 7,
+      "item/started": 7,
+      "remoteControl/status/changed": 1,
+      "thread/started": 1,
+      "thread/status/changed": 2,
+      "thread/tokenUsage/updated": 3,
+      "turn/completed": 1,
+      "turn/diff/updated": 3,
+      "turn/started": 1,
+      "warning": 1
+    },
+    "model_split_uncertain": false,
+    "parse_errors": [],
+    "server_requests_refused": [],
+    "status": "completed",
+    "terminal_ms": 13441,
+    "thread": {
+      "account": {
+        "kind": "chatgpt",
+        "plan_type": "prolite"
+      },
+      "approval_policy": "never",
+      "disabled_plugin_ids_count": 0,
+      "instruction_sources": [
+        "~/.codex/AGENTS.md"
+      ],
+      "mcp_servers_disabled_by_override": 13,
+      "model": "gpt-6.1-sol",
+      "model_provider": "openai",
+      "reasoning_effort": "xhigh",
+      "sandbox": "workspaceWrite",
+      "service_tier": "default"
+    },
+    "timed_out": false,
+    "tokens": {
+      "cached_input": 27136,
+      "input": 29980,
+      "output": 550,
+      "reasoning_output": 215,
+      "total": 30530
+    },
+    "tokens_status": "Reported (cumulative total minus baseline)",
+    "violations": []
+  },
+  "id": "C1a",
+  "model": "gpt-6.1-sol",
+  "other_clients": {
+    "chatgpt_codex_app_processes": 0,
+    "claude_cli_processes": 5,
+    "claude_desktop_processes": 31,
+    "codex_cli_processes_outside_chatgpt_app": 0,
+    "codexbar": 1
+  },
+  "pins": {
+    "claude": "2.1.316",
+    "codex": "0.166.0"
+  },
+  "route": "Codex",
+  "started_at": 1793499537,
+  "status": "Done",
+  "stop": null,
+  "usage_after": {
+    "claude": {
+      "at": 1793499553,
+      "auth_method": "claude.ai",
+      "usage_call_tokens": 0,
+      "windows": [
+        {
+          "label": "session",
+          "percent": 9.0,
+          "resets": "Oct 31 at 11:09pm (America/Los_Angeles)"
+        },
+        {
+          "label": "week (all models)",
+          "percent": 20.0,
+          "resets": "Nov 3 at 5:59am (America/Los_Angeles)"
+        },
+        {
+          "label": "week (Fable)",
+          "percent": 0.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        }
+      ]
+    },
+    "codex": {
+      "account": {
+        "kind": "chatgpt",
+        "plan_type": "prolite"
+      },
+      "account_hash": "9df5fe5ac52e",
+      "at": 1793499553,
+      "balance": "1250.0000000000",
+      "balance_state": "known 1250",
+      "buckets": [
+        {
+          "bucket": "codex",
+          "primary": {
+            "resets_at": 1794021146,
+            "used_percent": 2,
+            "window_mins": 10080
+          },
+          "secondary": null
+        }
+      ],
+      "ordinary_usage_allowed": true
+    }
+  },
+  "usage_before": {
+    "claude": {
+      "at": 1793499536,
+      "auth_method": "claude.ai",
+      "usage_call_tokens": 0,
+      "windows": [
+        {
+          "label": "session",
+          "percent": 9.0,
+          "resets": "Oct 31 at 11:09pm (America/Los_Angeles)"
+        },
+        {
+          "label": "week (all models)",
+          "percent": 20.0,
+          "resets": "Nov 3 at 5:59am (America/Los_Angeles)"
+        },
+        {
+          "label": "week (Fable)",
+          "percent": 0.0,
+          "resets": "Nov 3 at 6am (America/Los_Angeles)"
+        }
+      ]
+    },
+    "codex": {
+      "account": {
+        "kind": "chatgpt",
+        "plan_type": "prolite"
+      },
+      "account_hash": "9df5fe5ac52e",
+      "at": 1793499537,
+      "balance": "1250.0000000000",
+      "balance_state": "known 1250",
+      "buckets": [
+        {
+          "bucket": "codex",
+          "primary": {
+            "resets_at": 1794021146,
+            "used_percent": 2,
+            "window_mins": 10080
+          },
+          "secondary": null
+        }
+      ],
+      "ordinary_usage_allowed": true
+    }
+  },
+  "what": "peer exchange: Codex writes"
+}

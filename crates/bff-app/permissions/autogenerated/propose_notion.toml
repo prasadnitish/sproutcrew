@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-propose-notion"
+description = "Enables the propose_notion command without any pre-configured scope."
+commands.allow = ["propose_notion"]
+
+[[permission]]
+identifier = "deny-propose-notion"
+description = "Denies the propose_notion command without any pre-configured scope."
+commands.deny = ["propose_notion"]
