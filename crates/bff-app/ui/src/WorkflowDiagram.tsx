@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { DiagramStep, layout, wrap } from "./diagram";
 
-type Status = "done" | "next" | "waiting" | "running" | "failed";
+type Status = "done" | "attention" | "next" | "waiting" | "running" | "failed";
 
-/** The plan as a picture: the writers on the upper lane, the checkers on the lower, and a line from each step to the
+/** The plan as a picture: the writers on the upper lane, the second check on the lower, and a line from each step to the
  *  next. Every step runs after the one before it, and the picture says so. Click a step to read its result. */
 export default function Diagram({ steps, status, who, focus, onPick, detail, runs }: {
   steps: DiagramStep[];
@@ -34,7 +34,7 @@ export default function Diagram({ steps, status, who, focus, onPick, detail, run
       <div className="diagram-scroll">
         <svg viewBox={`0 0 ${l.width} ${l.height}`} width={fit ? "100%" : l.width} height={fit ? undefined : l.height} preserveAspectRatio="xMinYMin meet" role="group" aria-label="The steps and who does each">
           <text x="8" y={l.lanes.writing + 4} className="lane-label">Writers</text>
-          <text x="8" y={l.lanes.checking + 4} className="lane-label">Checkers</text>
+          <text x="8" y={l.lanes.checking + 4} className="lane-label">Second check</text>
           <line x1="0" x2={l.width} y1={l.lanes.checking - 46} y2={l.lanes.checking - 46} className="lane-rule" />
           {l.edges.map((e) => {
             const mid = (e.x1 + e.x2) / 2;

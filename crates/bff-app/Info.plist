@@ -4,5 +4,7 @@
 <dict>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>SproutCrew builds a new Keynote deck from your slides when you choose Build the deck in Keynote for a plan. It does not open or change your other files.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>SproutCrew saves your finished Word, PDF and PowerPoint files in Documents/SproutCrew.</string>
 </dict>
 </plist>

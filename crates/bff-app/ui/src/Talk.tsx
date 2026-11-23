@@ -2,7 +2,7 @@ import Composer from "./Composer";
 import { useEffect, useState } from "react";
 import { api, Artifact, ChatMessage, Input, Note, Stage, Trace } from "./api";
 import Markdown from "./Document";
-import { Chip, Ctx, effort, provider, roleName } from "./ui";
+import { Chip, Ctx, effort, provider, roleName, useConfirm } from "./ui";
 
 type Tool = "ask" | "note" | "inputs";
 
@@ -75,7 +75,7 @@ function AskPanel({ ctx, st }: { ctx: Ctx; st: Stage }) {
         </div>
       )}
       <Composer label="Your question" value={q} onChange={setQ} onSend={send} sendLabel="Ask" placeholder="Where does the 84% come from?"
-        blocked={ctx.busy ? "Wait for the current run to finish." : ""}
+        blocked={ctx.askBusy ? "Wait for the current run to finish." : ""}
         menu={<select className="quiet-menu" aria-label="Who answers" value={role} onChange={(e) => setRole(e.target.value)}>
           <option value="">{roleName(st.owner_role)} (wrote it)</option>
           {roles.filter((r) => r !== st.owner_role).map((r) => <option key={r} value={r}>{roleName(r)}</option>)}
@@ -89,6 +89,7 @@ function NotePanel({ ctx, st, hasResult }: { ctx: Ctx; st: Stage; hasResult: boo
   const [scope, setScope] = useState<"step" | "all">("step");
   const [saved, setSaved] = useState(false);
   const mine = ctx.s.notes.filter((n: Note) => !n.stage || n.stage === st.id);
+  const [ask, asking] = useConfirm();
   useEffect(() => setSaved(false), [st.id]);
   const save = () =>
     ctx.guard(async () => {
@@ -98,6 +99,7 @@ function NotePanel({ ctx, st, hasResult }: { ctx: Ctx; st: Stage; hasResult: boo
     });
   return (
     <div className="drawer talk">
+      {asking}
       <p className="muted">
         A note is your own instruction to this step, such as a date, a figure to use, or something to leave out. It goes into the step's next run, and the result does not change until you run the step again.
       </p>
@@ -107,13 +109,13 @@ function NotePanel({ ctx, st, hasResult }: { ctx: Ctx; st: Stage; hasResult: boo
             <li key={n.id}>
               <Chip tone="quiet">{n.stage ? "This step" : "Every step"}</Chip>
               <span className="note-text">{n.text}</span>
-              <button className="ghost" aria-label={`Remove the note: ${n.text.slice(0, 40)}`} onClick={() => ctx.guard(() => api.call("remove_note", { id: n.id }))}>Remove</button>
+              <button className="ghost" aria-label={`Remove the note: ${n.text.slice(0, 40)}`} onClick={() => ask({ title: "Remove this note?", line: "Future runs of this step stop getting it. Earlier results keep what they were given.", action: "Remove", run: () => void ctx.guard(() => api.call("remove_note", { id: n.id })) })}>Remove</button>
             </li>
           ))}
         </ul>
       )}
       <Composer label="New note" value={text} onChange={(v) => { setText(v); setSaved(false); }} onSend={save} sendLabel="Save note" placeholder="Use 14 January as the board date."
-        blocked={ctx.busy ? "Wait for the current run to finish." : ""}
+        blocked={ctx.askBusy ? "Wait for the current run to finish." : ""}
         menu={<select className="quiet-menu" aria-label="Who the note is for" value={scope} onChange={(e) => setScope(e.target.value as "step" | "all")}>
           <option value="step">For this step</option>
           <option value="all">For every step</option>

@@ -11,6 +11,8 @@ use std::time::Duration;
 
 pub const MAX_BODY: u64 = 5 * 1024 * 1024;
 pub const TIMEOUT: Duration = Duration::from_secs(120);
+/// For a short read the person is waiting on, which is better failed than hung.
+pub const QUICK_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a model may take to answer. A step that writes up to 8,000 tokens on a slow model can need more than
 /// two minutes, and a timeout after the request was sent leaves its charge unknown, which pauses all AI work.
 pub const MODEL_TIMEOUT: Duration = Duration::from_secs(300);
@@ -70,6 +72,15 @@ impl HttpClient {
     /// A client for these hosts only, over HTTPS only.
     pub fn new(hosts: &[&str]) -> HttpClient {
         HttpClient::build(hosts.iter().map(|h| h.to_string()).collect(), true, TIMEOUT)
+    }
+
+    /// A client for a quick read of public data, such as the model list: it gives up after [`QUICK_TIMEOUT`].
+    pub fn quick(hosts: &[&str]) -> HttpClient {
+        HttpClient::build(
+            hosts.iter().map(|h| h.to_string()).collect(),
+            true,
+            QUICK_TIMEOUT,
+        )
     }
 
     /// A client for a model provider, which waits up to [`MODEL_TIMEOUT`] for an answer.

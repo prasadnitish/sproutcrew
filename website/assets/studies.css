@@ -1,0 +1,63 @@
+
+
+.studio { --display:'Bricolage Grotesque',serif; --reading:'Atkinson Hyperlegible Next',sans-serif; --weight:700; --accent:#b9dcc3; }
+
+
+body { font-family:var(--reading); }
+h1,h2,h3,.feature h1,.guide h1,.identity {font-family:var(--display);font-weight:var(--weight); }
+.mast nav,.quiet,.get,summary,.button,.pulse a {font-family:var(--reading); }
+.get { background:var(--accent); min-height:44px; }
+.feature em,.pulse em {font-style:normal;color:var(--accent);}
+.feature.showcase {display:grid;grid-template-columns:.82fr 1.18fr;gap:clamp(20px,3.8vw,62px); padding-block:clamp(25px,4vw,60px); }
+.showcase h1 {font-size:clamp(42px,4.7vw,75px);line-height:1.02;letter-spacing:-.055em;margin:20px 0;}
+.showcase p {max-width:37ch;line-height:1.45;}
+.hero-actions {display:flex;gap:15px;align-items:center;flex-wrap:wrap;}
+.hero-actions .quiet {margin:0;}
+.cinema {min-width:0;border-radius:12px;background:linear-gradient(150deg,#292b34,#15171c);border:1px solid #545660;padding:10px;margin:0;box-shadow:0 3px #353640,0 6px #22242b,0 18px 32px #0006;}
+.cinema figcaption,.film-menu,.gallery-title,.dialog-bar {display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.cinema figcaption {padding:0 6px 8px;color:#dedee2;font:11px/1.4 ui-monospace,monospace;letter-spacing:.05em;}
+.projector::before {content:"";display:inline-block;width:7px;height:7px;background:var(--accent);border-radius:50%;margin-right:8px;}
+.screen {position:relative;background:#090909;border-radius:6px;overflow:clip;}
+video {width:100%;height:auto;aspect-ratio:16/9;object-fit:contain;display:block;}
+.start-film {position:absolute;inset:0;margin:auto;width:56px;height:56px;background:#11151cf0;color:white;border:1px solid #c7c7c7;border-radius:50%;font-size:21px;cursor:pointer;}
+.film-menu {justify-content:start;padding-top:7px;}
+button {font:inherit;}
+.film-menu button,.dialog-bar button {color:var(--ink-muted);background:transparent;border:1px solid transparent;border-radius:6px;padding:6px 13px;min-height:44px;font-size:14px;cursor:pointer;}
+.film-menu button[aria-pressed=true],.dialog-bar button {background:#2d3039;color:var(--ink);border-color:#555965;}
+.pulse h2,.gallery h2 {font-weight:var(--weight);line-height:1.12;}
+.pulse {padding-bottom:12px;}
+.gallery {padding:24px 0 40px;scroll-margin-top:40px;}
+.gallery-title {align-items:baseline;margin:0 0 16px;flex-wrap:wrap;}
+.gallery-title h2 {font-size:clamp(28px,3vw,44px);margin:0;letter-spacing:-.04em;}
+.gallery-title p,.shots p {font-size:15px;color:var(--ink-muted);margin:0;}
+.shots {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;grid-auto-rows:1fr;}
+.shots figure {min-width:0;margin:0;background:var(--raised);border:1px solid var(--line);border-radius:8px;}
+.shot {display:block;}
+.shot img {display:block;width:100%;height:auto;border-radius:7px 7px 0 0;}
+.shots figcaption {padding:16px;}
+.shots h3 {margin:0 0 6px;font-size:20px;line-height:1.25;}
+dialog {width:min(1100px,94%);max-height:90dvh;border:1px solid #696c76;background:#17191f;color:white;padding:10px;border-radius:10px;}
+dialog::backdrop {background:#060709df;}
+.dialog-bar {margin-bottom:8px;}
+.zoom {overflow:auto;max-height:72dvh;}
+.zoom img {width:100%;min-width:min(850px,180vw);display:block;}
+.press .showcase h1 {letter-spacing:-.07em;}
+.signal .showcase h1,.signal .gallery h2,.signal .pulse h2 {text-transform:uppercase;letter-spacing:.005em;}
+.signal .showcase h1 {font-size:clamp(54px,5.8vw,88px);}
+.signal .feature p,.signal .pulse p {font-size:16px;}
+.folio .showcase h1 {font-size:clamp(48px,5.3vw,86px);font-weight:400;}
+.proof .showcase h1 {letter-spacing:-.08em;}
+.studio .cinema,.studio .pulse article {border-radius:18px;}
+@media(prefers-reduced-motion:no-preference) {
+ .cinema {animation:film-reveal .65s ease-out;}
+ @keyframes film-reveal {from{transform:perspective(950px) rotateX(5deg) translateY(9px);opacity:.65;}}
+}
+@media(max-width:740px) {
+ .feature.showcase {grid-template-columns:1fr;gap:16px;padding-block:22px;}
+ .showcase h1,.folio .showcase h1 {font-size:clamp(45px,10vw,70px);margin:12px 0;}
+ .hero-text p {margin-bottom:12px;}
+ .shots {grid-template-columns:1fr;}
+ .gallery-title {gap:2px;}
+ .cinema {padding:7px;}
+ .pulse h2 {margin-top:8px;}
+}

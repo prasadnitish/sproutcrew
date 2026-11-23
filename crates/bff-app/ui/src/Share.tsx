@@ -6,7 +6,7 @@ import { Dest, destOrder } from "./handoff";
 import { guessStep } from "./steps";
 import { lookLine } from "./Template";
 import Gate from "./Gate";
-import { Chip, Ctx, Empty, PillState, StatusPill, text, SectionIntro, radioKeys } from "./ui";
+import { Chip, Ctx, Empty, PillState, StatusPill, text, radioKeys, Section } from "./ui";
 
 const PILL: Record<Post["status"], PillState> = { draft: "approval", approved: "queued", needs_check: "approval", sent: "done", failed: "failed", cancelled: "cancelled" };
 const PILL_NOTE: Record<Post["status"], string> = { draft: "A draft: it needs your approval", approved: "Approved, waiting for its time", needs_check: "A send was cut off: check the destination", sent: "Sent", failed: "The send failed", cancelled: "Cancelled" };
@@ -19,22 +19,34 @@ function ExportBox({ ctx }: { ctx: Ctx }) {
   const [report, setReport] = useState<{ folder: string; markdown: string; pdf: string | null; notes: string[] } | null>(null);
   const [err, setErr] = useState("");
   const [log, setLog] = useState<{ path: string; text: string } | null>(null);
+  const [raw, setRaw] = useState<{ folder: string } | null>(null);
   const reveal = (path: string) => api.call("reveal_export", { path }).catch((e) => setErr(text(e)));
   return (
     <section className="sheet">
-      <header className="sheet-head"><div><h2>Export everything</h2><p className="muted">One folder with the final document, every step's result in order, your sources, and any code. It is scanned for secrets first, and one secret stops the export.</p></div></header>
+      <p className="muted">One folder with the final document, every step's result in order, your sources, and any code. It is scanned for secrets first, and one secret stops the export.</p>
       <div className="actions">
-        <button className="primary big" disabled={!!ctx.busy || ctx.s.artifacts.length === 0} onClick={() => ctx.guard(async () => {
+        <button disabled={!!ctx.busy || ctx.s.artifacts.length === 0} onClick={() => ctx.guard(async () => {
           try { setOut(await api.call<Exported>("export_package", { runInstructions: notes })); setErr(""); } catch (e) { setOut(null); setErr(text(e)); throw e; }
         })}>Export everything</button>
-        <button className="ghost" disabled={!!ctx.busy} onClick={() => ctx.guard(async () => {
+        <button className="ghost" disabled={!!ctx.busy} title="A short summary: the steps, the models, the cost, what the second check said, and what is still open" onClick={() => ctx.guard(async () => {
           setReport(null);
           setReport(await api.call("export_run_report"));
         })}>Export run report · Markdown + PDF</button>
-        <button className="ghost" disabled={!!ctx.busy} title="What the checkers said, what you changed, and what changed in the work" onClick={() => ctx.guard(async () => {
+        <button className="ghost" disabled={!!ctx.busy} title="What the second check said, what you changed, and what changed in the work" onClick={() => ctx.guard(async () => {
           try { setLog(await api.call<{ path: string; text: string }>("export_decision_log")); setErr(""); } catch (e) { setLog(null); setErr(text(e)); throw e; }
         })}>Make the decision log</button>
       </div>
+      <details>
+        <summary>Advanced: raw data</summary>
+        <p className="muted">The records behind the run report as JSON: the approved plan and its hash, every attempt, and every cost entry. Long, and for anyone who wants to audit a run.</p>
+        <div className="actions tight">
+          <button className="ghost" disabled={!!ctx.busy} onClick={() => ctx.guard(async () => {
+            setRaw(null);
+            try { setRaw(await api.call<{ folder: string }>("export_run_report_raw")); setErr(""); } catch (e) { setErr(text(e)); throw e; }
+          })}>Export the raw data · Markdown</button>
+        </div>
+        {raw && <div className="result" role="status"><p>Raw data saved</p><p className="muted path">{raw.folder}</p><button className="ghost" onClick={() => reveal(raw.folder)}>Show in Finder</button></div>}
+      </details>
       <details>
         <summary>Add a note for whoever opens it</summary>
         <label>Note
@@ -126,7 +138,7 @@ function Outbox({ ctx }: { ctx: Ctx }) {
           what={<p>This post will be written to the stand-in file in this project on {when(review.scheduled_at)}; no social network receives it. Approve the exact text below.</p>}
           payload={review.text}
           onReject={() => setReview(null)}
-          onApprove={() => { const id = review.id; setReview(null); void act("outbox_approve", { id, by: "Nitish" }); }} />
+          onApprove={() => { const id = review.id; setReview(null); void act("outbox_approve", { project: ctx.s.name, id }); }} />
       )}
       {posts.length === 0 && <Empty>No posts yet.</Empty>}
       {posts.map((p) => (
@@ -180,8 +192,9 @@ function WriteList({ ctx }: { ctx: Ctx }) {
   const act = (f: () => Promise<unknown>) => ctx.guard(async () => { await f(); });
   const [review, setReview] = useState<WriteItem | null>(null);
   if (items.length === 0) return null;
+  const waiting = items.filter((w) => w.status === "proposed" || w.status === "approved").length;
   return (
-    <section className="sheet">
+    <Section title="Waiting and sent" value={`${waiting} waiting, ${items.length - waiting} done`} flag={waiting ? `${waiting} waiting` : undefined}>
       {review && (
         <Gate title="Approve this write?" approveLabel="Approve write" rejectLabel="Not yet" busy={!!ctx.busy}
           what={review.kind === "notion"
@@ -191,11 +204,11 @@ function WriteList({ ctx }: { ctx: Ctx }) {
             : <p>This will put {review.files.length} files in the folder {review.folder} on a new branch, {review.branch}, in {review.repo}. The main branch is not touched. Open a file to read it before you approve.</p>}
           payload={review.kind === "notion" ? review.body : review.files.map((f) => `${f.path}  (${f.bytes} bytes)`).join("\n")}
           onReject={() => setReview(null)}
-          onApprove={() => { const id = review.id; setReview(null); void act(() => api.call("approve_write", { id, by: "Local user" })); }}>
+          onApprove={() => { const id = review.id; setReview(null); void act(() => api.call("approve_write", { project: ctx.s.name, id })); }}>
           {review.kind === "github" && <ul className="plain">{review.files.map((f) => <li key={f.path}><FileText id={review.id} path={f.path} bytes={f.bytes} /></li>)}</ul>}
         </Gate>
       )}
-      <header className="sheet-head"><div><h2>Waiting and sent</h2><p className="muted">Each one is shown in full. Approve it, then send it.</p></div></header>
+      <p className="muted">Each one is shown in full. Approve it, then send it.</p>
       {items.map((w) => (
         <div className="post" key={w.id} id={`write-${w.id}`}>
           <div>
@@ -218,7 +231,7 @@ function WriteList({ ctx }: { ctx: Ctx }) {
           </div>
         </div>
       ))}
-    </section>
+    </Section>
   );
 }
 
@@ -267,13 +280,22 @@ function ClientForm({ ctx }: { ctx: Ctx }) {
   const steps = (ctx.s.plan?.stages ?? []).filter((st) => ctx.s.artifacts.some((a) => a.name === st.id));
   const [doc, setDoc] = useState(guessStep(steps, ["finish_document", "polish_document", "polish_finish", "finish", "document", "client_doc", "recommend"]));
   const [deck, setDeck] = useState(guessStep(steps, ["finish_deck", "polish_deck", "deck", "present"]));
-  const [subtitle, setSubtitle] = useState("Prepared for the board");
+  const [subtitle, setSubtitle] = useState("");
   const [out, setOut] = useState<ClientMade | null>(null);
   const [err, setErr] = useState("");
-  const pick = (v: string, set: (x: string) => void, label: string) => (
+  // Files wait for the details only the person can supply, here as on the result: made once none are missing, or the
+  // person finished around them.
+  const [held, setHeld] = useState(false);
+  const results = [ctx.s.artifacts.map((a) => a.file).join(), ctx.s.notes.map((n) => n.id).join(), ctx.busy ? "busy" : "idle"].join("|");
+  useEffect(() => {
+    let live = true;
+    api.call<{ gaps?: unknown[]; accepted?: boolean }>("final_files").then((f) => live && setHeld(!!f.gaps?.length && !f.accepted)).catch(() => live && setHeld(false));
+    return () => { live = false; };
+  }, [results]);
+  const pick = (v: string, set: (x: string) => void, label: string, none: string) => (
     <label>{label}
       <select value={v} onChange={(e) => set(e.target.value)}>
-        <option value="">None</option>
+        <option value="">{none}</option>
         {steps.map((st) => <option key={st.id} value={st.id}>{st.title}</option>)}
       </select>
     </label>
@@ -281,22 +303,24 @@ function ClientForm({ ctx }: { ctx: Ctx }) {
   if (steps.length === 0) return <p className="empty-note">Run the steps first. The files are made from their results.</p>;
   return (
     <>
-      <p className="muted lead">Makes a Word document and a PDF of it, a PowerPoint deck, and an Excel file of the document's tables, ready to hand over. A section for the team (Source warnings) is left out. The files go in a new folder in this project.</p>
+      <p className="muted lead">Makes a Word document and a PDF of it, a PowerPoint deck, and an Excel file of the document's tables, ready to hand over. A section for the team (Source warnings) is left out. The files are saved in your Documents folder, under SproutCrew and this project's name, and nothing there is replaced.</p>
       <LookChoice ctx={ctx} />
       <SaveToFolder ctx={ctx} steps={steps} />
-      {pick(doc, setDoc, "Which result is the document?")}
-      {pick(deck, setDeck, "Which result is the deck?")}
-      <label>Subtitle on the front
+      {pick(doc, setDoc, "Which result is the document?", "None")}
+      {pick(deck, setDeck, "Which result is the deck?", "Make slides from the document")}
+      <label>Subtitle on the front (optional)
         <input value={subtitle} onChange={(e) => setSubtitle(e.target.value)} />
       </label>
+      {held && <p className="field-error" role="status">Some details are still missing from the draft. Fill them in on the result first, or finish with what you have.</p>}
       <div className="actions">
-        <button className="primary" disabled={!!ctx.busy || (!doc && !deck)} onClick={() => ctx.guard(async () => {
+        <button className="primary" disabled={!!ctx.busy || held || (!doc && !deck)} onClick={() => ctx.guard(async () => {
           try { setOut(await api.call<ClientMade>("export_client_files", { documentStep: doc || null, deckStep: deck || null, subtitle })); setErr(""); } catch (e) { setOut(null); setErr(text(e)); throw e; }
         })}>Make the files</button>
       </div>
       {err && <p className="field-error" role="alert">{err}</p>}
       {out && (
         <div className="result" role="status">
+          <p className="muted path">{out.folder}</p>
           {out.files.map((f) => (
             <div className="file-line" key={f.path}>
               <span className="type-tile" aria-hidden="true">{f.kind === "word" ? "Doc" : f.kind === "pdf" ? "PDF" : f.kind === "sheet" ? "Xls" : f.kind === "keynote" ? "Key" : "Ppt"}</span>
@@ -397,17 +421,21 @@ export default function ShareTab({ ctx }: { ctx: Ctx }) {
     try { const item = JSON.parse(sessionStorage.getItem("sproutcrew:write-decision") ?? "null"); return ctx.s.writes.find(w => w.id === item?.id)?.kind ?? null; } catch { return null; }
   });
   useEffect(() => {
-    try { const item = JSON.parse(sessionStorage.getItem("sproutcrew:write-decision") ?? "null"); if (item) requestAnimationFrame(() => document.getElementById(item.anchor)?.scrollIntoView({ block: "center" })); } finally { sessionStorage.removeItem("sproutcrew:write-decision"); }
+    try { const item = JSON.parse(sessionStorage.getItem("sproutcrew:write-decision") ?? "null"); if (item) requestAnimationFrame(() => document.getElementById(item.anchor)?.scrollIntoView({ block: "start" })); } finally { sessionStorage.removeItem("sproutcrew:write-decision"); }
   }, []);
   const dest = picked && order.includes(picked) ? picked : order[0];
   const d = DESTS.find((x) => x.id === dest)!;
   return (
     <>
-      <SectionIntro title="Put your work to use">{order[0] === "app" ? "Open what your crew built, see its files, or carry it into another project." : "Export a document or presentation, keep a project folder, or carry the work into another project."}</SectionIntro>
-      <FinalFiles ctx={ctx} />
-      <ExportBox ctx={ctx} />
-      <section className="sheet">
-        <header className="sheet-head"><div><h2>Where should it go?</h2><p className="muted">Results are sent only after you approve exactly what goes. Your brief and the context each step needs already go to the AI service you chose.</p></div></header>
+      <div className="page-sections"><div>
+      <Section title={(ctx.s.result_review?.finished ?? false) ? "Final document" : "Draft"} value={ctx.s.result_review?.finished ? (ctx.s.result_review.reviewed ? "reviewed" : "not reviewed") : `${ctx.s.artifacts.length} results so far`} open>
+        <FinalFiles ctx={ctx} />
+      </Section>
+      <Section title="Export" value={ctx.s.artifacts.length ? "everything, a run report or the decision log" : "after the first result"}>
+        <ExportBox ctx={ctx} />
+      </Section>
+      <Section title="Send it somewhere" value={d.name}>
+        <p className="muted">Results are sent only after you approve exactly what goes. Your brief and the context each step needs already go to the AI service you chose.</p>
         <div className="dests" role="radiogroup" aria-label="Destination" onKeyDown={radioKeys}>
           {order.map((id) => DESTS.find((x) => x.id === id)!).map((x) => (            <button key={x.id} role="radio" aria-checked={dest === x.id} tabIndex={dest === x.id ? 0 : -1} className={`dest${dest === x.id ? " on" : ""}`} onClick={() => setDest(x.id)}>
               <span className="type-tile" aria-hidden="true">{x.mark}</span>
@@ -416,17 +444,17 @@ export default function ShareTab({ ctx }: { ctx: Ctx }) {
             </button>
           ))}
         </div>
-      </section>
-      <section className="sheet" key={dest}>
-        <header className="sheet-head"><div><h2>{d.id === "app" ? "Your app" : d.id === "next" ? "Continue in a new project" : d.id === "client" ? "Make documents and slides" : d.id === "posts" ? "Post drafts" : `Send to ${d.name}`}</h2></div></header>
+        <div className="dest-form" key={dest}>
         {dest === "app" && <AppBox ctx={ctx} />}
         {dest === "next" && <ContinueBox ctx={ctx} />}
         {dest === "client" && <ClientForm ctx={ctx} />}
         {dest === "notion" && <NotionForm ctx={ctx} />}
         {dest === "github" && <GithubForm ctx={ctx} />}
         {dest === "posts" && <Outbox ctx={ctx} />}
-      </section>
+        </div>
+      </Section>
       <WriteList ctx={ctx} />
+      </div></div>
     </>
   );
 }

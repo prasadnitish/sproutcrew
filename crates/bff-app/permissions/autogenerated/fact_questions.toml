@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-fact-questions"
+description = "Enables the fact_questions command without any pre-configured scope."
+commands.allow = ["fact_questions"]
+
+[[permission]]
+identifier = "deny-fact-questions"
+description = "Denies the fact_questions command without any pre-configured scope."
+commands.deny = ["fact_questions"]

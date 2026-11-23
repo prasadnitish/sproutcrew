@@ -80,6 +80,115 @@ fn run_report_structure_matches_golden_and_retains_approval_and_unknown_costs() 
     }
 }
 #[test]
+fn the_run_report_is_a_readable_summary_and_the_raw_data_is_a_separate_export() {
+    let root = base("summary");
+    let mut s = studio(&root, "one");
+    let (first, _) = artifact(&mut s, "A source-backed memo.");
+    // The step that checks the draft gives a verdict, and the plan names who did which step.
+    let check = s
+        .plan()
+        .unwrap()
+        .stages
+        .iter()
+        .find(|st| bff_core::verdict::asks_for_verdict(&st.guide))
+        .cloned()
+        .expect("the writing plan has a second check");
+    let d = s.dispatch(&check.id, 8).unwrap();
+    std::fs::write(
+        d.dir.join("artifact.md"),
+        "- \"A source-backed memo\": name the source.\nVerdict: Fix first\n",
+    )
+    .unwrap();
+    s.complete(&d, "artifact.md", &check.id, &[], 9).unwrap();
+    let report = bff_core::run_report::checked_summary(&s, 10).unwrap();
+    assert!(report.starts_with("# Run report"), "{report}");
+    for heading in ["## Summary", "## Steps", "## Second check", "## Cost"] {
+        assert!(report.contains(heading), "{heading}: {report}");
+    }
+    assert!(
+        !report.contains("```json") && !report.contains("plan_hash"),
+        "{report}"
+    );
+    assert!(report.contains("Fixture owner"), "who approved it");
+    assert!(report.contains("openrouter/free"), "the model of each step");
+    assert!(
+        report.contains(&format!("2 of {}", s.plan().unwrap().stages.len())),
+        "{report}"
+    );
+    assert!(
+        report.contains("not run"),
+        "a step with no result says so: {report}"
+    );
+    assert!(
+        report.contains("Fix first") && report.contains("name the source"),
+        "{report}"
+    );
+    assert!(report.contains("API dollars: unknown"), "{report}");
+    assert!(report.contains(
+        &s.plan()
+            .unwrap()
+            .stages
+            .iter()
+            .find(|st| st.id == first)
+            .unwrap()
+            .title
+    ));
+    let raw = bff_core::run_report::checked(&s, 10).unwrap();
+    assert!(
+        report.len() < raw.len() / 2,
+        "{} vs {}",
+        report.len(),
+        raw.len()
+    );
+    // The main export is the summary, and the raw data is made only when asked for.
+    let out = root.join("report");
+    bff_core::run_report::export(&s, &out, &Default::default(), 10).unwrap();
+    let main = std::fs::read_to_string(out.join("Run report.md")).unwrap();
+    assert!(main.contains("## Steps") && !main.contains("## Approved plan and hash"));
+    assert!(!out.join("Run report (raw data).md").exists());
+    let raw_out = root.join("raw");
+    let made = bff_core::run_report::export_raw(&s, &raw_out, 10).unwrap();
+    let raw_md = std::fs::read_to_string(raw_out.join("Run report (raw data).md")).unwrap();
+    assert!(raw_md.contains("## Approved plan and hash") && raw_md.contains("```json"));
+    assert_eq!(
+        made["markdown"],
+        raw_out
+            .join("Run report (raw data).md")
+            .display()
+            .to_string()
+    );
+    assert!(
+        bff_core::run_report::export_raw(&s, &raw_out, 11).is_err(),
+        "never overwrites"
+    );
+}
+
+#[test]
+fn the_summary_lists_the_details_still_missing_and_stops_on_a_secret_like_the_raw_report() {
+    let root = base("summary-gaps");
+    let mut s = studio(&root, "one");
+    // Every step has a result, and the finished text has a detail only the person can supply.
+    for (n, st) in s.plan().unwrap().stages.clone().iter().enumerate() {
+        let d = s.dispatch(&st.id, 4 + n as u64).unwrap();
+        std::fs::write(
+            d.dir.join("artifact.md"),
+            "The price is [NEEDED: the price per seat].\n",
+        )
+        .unwrap();
+        s.complete(&d, "artifact.md", &st.id, &[], 5 + n as u64)
+            .unwrap();
+    }
+    let report = bff_core::run_report::checked_summary(&s, 9).unwrap();
+    assert!(report.contains("## Still open"), "{report}");
+    assert!(report.contains("the price per seat"), "{report}");
+    let root = base("summary-secret");
+    let mut s = studio(&root, "one");
+    artifact(&mut s, "TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789");
+    assert!(bff_core::run_report::checked_summary(&s, 9)
+        .unwrap_err()
+        .contains("secret"));
+}
+#[test]
 fn failed_attempt_is_preserved_in_report_and_project_status_without_a_result() {
     let root = base("failed-attempt");
     let mut s = studio(&root, "one");
@@ -127,6 +236,7 @@ fn decision_inbox_aggregates_two_runs_orders_risk_and_links_exact_steps() {
     let a = studio(&root, "alpha");
     let mut b = studio(&root, "beta");
     let stage_a = a.plan().unwrap().stages[0].id.clone();
+    let a_title = a.plan().unwrap().stages[0].title.clone();
     let action = Action {
         stage: stage_a.clone(),
         tool: Tool::Delete,
@@ -151,6 +261,10 @@ fn decision_inbox_aggregates_two_runs_orders_risk_and_links_exact_steps() {
     assert_eq!(inbox["items"][0]["project"], "alpha");
     assert_eq!(inbox["items"][0]["tier"], "destructive");
     assert_eq!(inbox["items"][0]["stage"], stage_a);
+    // A card names its step by the title the plan gave it, never by the id.
+    let title_a = a_title.clone();
+    assert_eq!(inbox["items"][0]["step_title"], title_a);
+    assert_ne!(inbox["items"][0]["step_title"], inbox["items"][0]["stage"]);
     let row = inbox["items"]
         .as_array()
         .unwrap()

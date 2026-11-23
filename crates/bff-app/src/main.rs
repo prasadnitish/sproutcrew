@@ -20,6 +20,8 @@ use attention::{
 
 struct Shared {
     app: Arc<Mutex<App>>,
+    /// The person signed in to this Mac, read once at launch. Every decision records it; no screen chooses it.
+    approver: String,
     /// The first safety stop on any route, held for all of them until BFF restarts.
     latch: bff_core::stop::StopLatch,
     data: PathBuf,
@@ -27,6 +29,8 @@ struct Shared {
     cancel: Arc<AtomicBool>,
     /// Number of engine runs in flight.
     active: Arc<AtomicUsize>,
+    /// Held for the whole of a run of steps, so nothing treats the moment between two steps as idle.
+    hold: bff_core::app::RunHold,
     /// Live runs draw on plan quota, so the interface must confirm once per launch.
     swept: usize,
     /// The running prototype preview, if any.
@@ -236,6 +240,17 @@ fn api_engines(
     })
 }
 
+/// The refusal of a second run in the same project.
+const RUN_GOING: &str = "A run is already going in this project.";
+
+/// Clears the stop flag for work that is about to start. When a piece of work is still in flight it may be one the
+/// person stopped, so the flag is left alone and a later start cannot un-cancel it.
+fn clear_stop(sh: &Shared) {
+    if sh.hold.steps_in_flight() == 0 {
+        sh.cancel.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Counts one piece of work as in progress until it is dropped.
 struct ActiveGuard(Arc<AtomicUsize>);
 
@@ -302,11 +317,18 @@ fn projects_overview(sh: State<'_, Shared>) -> Value {
 }
 
 #[tauri::command]
-fn create_project(sh: State<'_, Shared>, name: String, brief: String) -> Result<(), String> {
-    sh.app
-        .lock()
-        .expect("app lock")
-        .create_project(&name, &brief, now())
+fn create_project(
+    sh: State<'_, Shared>,
+    name: String,
+    brief: String,
+    allow_key_shape: Option<bool>,
+) -> Result<(), String> {
+    sh.app.lock().expect("app lock").create_project_allowing(
+        &name,
+        &brief,
+        now(),
+        allow_key_shape.unwrap_or(false),
+    )
 }
 
 #[tauri::command]
@@ -316,6 +338,7 @@ async fn create_project_from(
     name: String,
     brief: String,
     source_ids: Vec<String>,
+    allow_key_shape: Option<bool>,
 ) -> Result<(), String> {
     if sh.active.load(Ordering::SeqCst) > 0 {
         return Err("Finish or stop the current work before starting over".into());
@@ -330,7 +353,14 @@ async fn create_project_from(
         if active.load(Ordering::SeqCst) != 1 {
             return Err("Finish or stop the current work before starting over".into());
         }
-        app.create_project_from(&from, &name, &brief, &source_ids, now())
+        app.create_project_from_allowing(
+            &from,
+            &name,
+            &brief,
+            &source_ids,
+            now(),
+            allow_key_shape.unwrap_or(false),
+        )
     })
     .await?
 }
@@ -371,10 +401,10 @@ async fn propose_plan(
 ) -> Result<(), String> {
     let mut e = engine_for(&engine, &sh)?;
     let app = sh.app.clone();
-    sh.cancel.store(false, Ordering::SeqCst);
+    clear_stop(&sh);
     let _ = on_event.send(RunEvent::Started {
         engine: engine.clone(),
-        what: "lead plan".into(),
+        what: "planning the steps".into(),
     });
     let r = blocking(&sh, move || {
         app.lock().expect("app lock").propose(e.as_mut(), now())
@@ -401,9 +431,47 @@ fn save_plan(sh: State<'_, Shared>, plan: Value) -> Result<(), Vec<String>> {
     app.save_plan(plan, now())
 }
 
+/// What the person decided across projects, newest first (the board's Decided).
 #[tauri::command]
-fn approve(sh: State<'_, Shared>, by: String) -> Result<(), String> {
-    sh.app.lock().expect("app lock").approve(&by, now())
+fn decided_list(sh: State<'_, Shared>) -> Value {
+    sh.app.lock().expect("app lock").decided(200)
+}
+
+/// The policy defaults and how each project compares with them (the Policy page).
+#[tauri::command]
+fn policy_overview(sh: State<'_, Shared>) -> Value {
+    sh.app.lock().expect("app lock").policy_overview()
+}
+
+/// Saves the policy defaults for new projects, and tightens the projects named in `tighten` to them.
+#[tauri::command]
+fn set_policy_defaults(
+    sh: State<'_, Shared>,
+    defaults: bff_core::policy_defaults::Defaults,
+    tighten: Vec<String>,
+) -> Result<Vec<String>, String> {
+    sh.app
+        .lock()
+        .expect("app lock")
+        .set_policy_defaults(defaults, &tighten, now())
+}
+
+/// Marks the open project's finished results reviewed, as the person saw them (`version`).
+#[tauri::command]
+fn mark_reviewed(sh: State<'_, Shared>, project: String, version: String) -> Result<(), String> {
+    sh.app
+        .lock()
+        .expect("app lock")
+        .mark_reviewed(&project, &version, &sh.approver, now())
+}
+
+/// Approves the open plan only if it is the named project and still the version the person read (`hash`).
+#[tauri::command]
+fn approve(sh: State<'_, Shared>, project: String, hash: String) -> Result<(), String> {
+    sh.app
+        .lock()
+        .expect("app lock")
+        .approve_seen(&project, &hash, &sh.approver, now())
 }
 
 #[tauri::command]
@@ -415,12 +483,14 @@ async fn run_stage(
 ) -> Result<String, String> {
     let mut e = engine_for(&engine, &sh)?;
     let app = sh.app.clone();
-    sh.cancel.store(false, Ordering::SeqCst);
+    clear_stop(&sh);
     let _ = on_event.send(RunEvent::Started {
         engine: engine.clone(),
         what: format!("stage {stage_id}"),
     });
-    let _pulse = Pulse::start(on_event.clone(), format!("stage {stage_id}"));
+    // The progress lines name the step by its title. The start event above keeps the id, which the screen reads.
+    let title = app.lock().expect("app lock").stage_title(&stage_id);
+    let _pulse = Pulse::start(on_event.clone(), title);
     let step = stage_id.clone();
     if app
         .lock()
@@ -533,12 +603,20 @@ async fn run_wave(
         .collect::<Vec<_>>()
         .join(" and ");
     let app = sh.app.clone();
-    sh.cancel.store(false, Ordering::SeqCst);
+    clear_stop(&sh);
     let _ = on_event.send(RunEvent::Started {
         engine: engine.clone(),
         what: what.clone(),
     });
-    let _pulse = Pulse::start(on_event.clone(), what);
+    let titles = {
+        let app = app.lock().expect("app lock");
+        stage_ids
+            .iter()
+            .map(|s| app.stage_title(s))
+            .collect::<Vec<_>>()
+            .join(" and ")
+    };
+    let _pulse = Pulse::start(on_event.clone(), titles);
     let ids = stage_ids.clone();
     let r = blocking(&sh, move || {
         let jobs = app.lock().expect("app lock").begin_wave(&ids, now())?;
@@ -577,7 +655,7 @@ async fn engine_phased<P: Send + 'static, R: Send + 'static, T: Send + 'static>(
 ) -> Result<T, String> {
     let mut e = engine_for(&engine, sh)?;
     let app = sh.app.clone();
-    sh.cancel.store(false, Ordering::SeqCst);
+    clear_stop(sh);
     let _ = on_event.send(RunEvent::Started {
         engine,
         what: what.clone(),
@@ -607,7 +685,7 @@ async fn engine_run<T: Send + 'static>(
 ) -> Result<T, String> {
     let mut e = engine_for(&engine, sh)?;
     let app = sh.app.clone();
-    sh.cancel.store(false, Ordering::SeqCst);
+    clear_stop(sh);
     let _ = on_event.send(RunEvent::Started {
         engine,
         what: what.clone(),
@@ -633,7 +711,11 @@ async fn review(
     reviewer: String,
     on_event: Channel<RunEvent>,
 ) -> Result<Value, String> {
-    let what = format!("review of {artifact} by {reviewer}");
+    // Work other than a plan step is named by the step's title, never by its id.
+    let what = format!(
+        "a second check of {}",
+        sh.app.lock().expect("app lock").stage_title(&artifact)
+    );
     engine_phased(
         &sh,
         engine,
@@ -649,15 +731,15 @@ async fn review(
 #[tauri::command]
 fn decide(
     sh: State<'_, Shared>,
+    project: String,
     artifact: String,
     finding: String,
     decision: String,
     reason: String,
 ) -> Result<(), String> {
-    sh.app
-        .lock()
-        .expect("app lock")
-        .decide(&artifact, &finding, &decision, &reason, now())
+    let mut app = sh.app.lock().expect("app lock");
+    app.require_open(&project)?;
+    app.decide(&artifact, &finding, &decision, &reason, now())
 }
 
 #[tauri::command]
@@ -669,7 +751,10 @@ async fn revise(
     base: String,
     on_event: Channel<RunEvent>,
 ) -> Result<u32, String> {
-    let what = format!("revision of {artifact} by {by}");
+    let what = format!(
+        "a revision of {}",
+        sh.app.lock().expect("app lock").stage_title(&artifact)
+    );
     engine_run(&sh, engine, what, on_event, move |app, e| {
         app.revise(e, &artifact, &by, &base, now())
     })
@@ -682,11 +767,14 @@ fn set_budget(sh: State<'_, Shared>, limit: u64, per_task: u64) -> Result<(), St
 }
 
 #[tauri::command]
+fn set_project_limit(sh: State<'_, Shared>, dollars: f64) -> Result<Value, String> {
+    sh.app.lock().expect("app lock").set_project_limit(dollars)
+}
+
+/// The old name of `set_project_limit`, kept so an older window still works.
+#[tauri::command]
 fn raise_project_limit(sh: State<'_, Shared>, dollars: f64) -> Result<Value, String> {
-    sh.app
-        .lock()
-        .expect("app lock")
-        .raise_project_limit(dollars)
+    set_project_limit(sh, dollars)
 }
 
 #[tauri::command]
@@ -1153,11 +1241,10 @@ fn propose_github(
 }
 
 #[tauri::command]
-fn approve_write(sh: State<'_, Shared>, id: String, by: Option<String>) -> Result<(), String> {
-    let by = by
-        .filter(|b| !b.trim().is_empty())
-        .unwrap_or_else(|| "Local user".into());
-    sh.app.lock().expect("app lock").approve_write(&id, &by)
+fn approve_write(sh: State<'_, Shared>, project: String, id: String) -> Result<(), String> {
+    let mut app = sh.app.lock().expect("app lock");
+    app.require_open(&project)?;
+    app.approve_write(&id, &sh.approver)
 }
 
 /// The pages a web research step's search used, for the person to add as sources if they choose. Adding one is an
@@ -1217,6 +1304,22 @@ async fn send_write(sh: State<'_, Shared>, id: String) -> Result<String, String>
         bff_core::writes::Writes::open(&root)?.send(&id, &mut remote)
     })
     .await?
+}
+
+/// The questions the run is waiting on, from the step that checks what is missing. Empty once they are answered.
+#[tauri::command]
+fn fact_questions(sh: State<'_, Shared>) -> Result<Vec<bff_core::facts::Question>, String> {
+    sh.app.lock().expect("app lock").fact_questions()
+}
+
+/// Keeps the answers to those questions as notes for the steps that follow, and lets the run go on. A skipped
+/// question is `null`. An answer that looks like a password is refused and nothing is saved.
+#[tauri::command]
+fn answer_facts(sh: State<'_, Shared>, answers: Vec<Option<String>>) -> Result<(), String> {
+    sh.app
+        .lock()
+        .expect("app lock")
+        .answer_facts(answers, now())
 }
 
 /// Adds a note for a step, or for every step when `stage` is empty. The step's next run is told it.
@@ -1287,7 +1390,10 @@ async fn ask_step(
     question: String,
     on_event: Channel<RunEvent>,
 ) -> Result<Value, String> {
-    let what = format!("a question about {stage}");
+    let what = format!(
+        "a question about {}",
+        sh.app.lock().expect("app lock").stage_title(&stage)
+    );
     engine_phased(
         &sh,
         engine,
@@ -1317,7 +1423,7 @@ async fn coordinator_say(
     engine_phased(
         &sh,
         engine,
-        "the coordinator".into(),
+        "your request for a change".into(),
         on_event,
         move |app| app.begin_coordinator_say(&role, &message, now()),
         |e, p| bff_core::coordinator::run_say(e, p),
@@ -1333,11 +1439,12 @@ fn coordinator_chat(sh: State<'_, Shared>) -> Result<Value, String> {
 
 /// Applies a proposal. A plan change is saved and approved by `by`.
 #[tauri::command]
-fn coordinator_apply(sh: State<'_, Shared>, id: String, by: String) -> Result<Value, String> {
+fn coordinator_apply(sh: State<'_, Shared>, project: String, id: String) -> Result<Value, String> {
     let allowed = bff_core::running_code::allowed(&sh.data);
     let mut app = sh.app.lock().expect("app lock");
+    app.require_open(&project)?;
     app.set_code_allowed(allowed);
-    app.coordinator_apply(&id, &by, now())
+    app.coordinator_apply(&id, &sh.approver, now())
 }
 
 #[tauri::command]
@@ -1359,6 +1466,16 @@ fn set_keynote(sh: State<'_, Shared>, on: bool) -> Result<(), Vec<String>> {
     sh.app.lock().expect("app lock").set_keynote(on, now())
 }
 
+/// The name, size and kind of each path the person dropped or typed, for the list on the new project screen.
+/// It reads file information only, never the contents, and changes nothing.
+#[tauri::command]
+fn path_info(paths: Vec<String>) -> Vec<Value> {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    paths.iter().map(|p| App::path_info(p, &home)).collect()
+}
+
 /// Whether Keynote is installed on this Mac.
 #[tauri::command]
 fn keynote_installed() -> bool {
@@ -1377,13 +1494,18 @@ async fn export_client_files(
     blocking(&sh, move || {
         let home = std::env::var("HOME").unwrap_or_default();
         let tools = file_tools(&home);
-        app.lock().expect("app lock").export_client_files(
+        // The copy to Documents can wait on a macOS permission prompt, so it runs after the lock is let go.
+        let (mut shown, job) = app.lock().expect("app lock").export_client_files_pending(
             document_step.as_deref(),
             deck_step.as_deref(),
             &subtitle,
             &tools,
             now(),
-        )
+        )?;
+        if let Some(job) = job {
+            job.run(&mut shown);
+        }
+        Ok(shown)
     })
     .await?
 }
@@ -1395,7 +1517,12 @@ async fn final_files(sh: State<'_, Shared>) -> Result<Value, String> {
     blocking(&sh, move || {
         let home = std::env::var("HOME").unwrap_or_default();
         let tools = file_tools(&home);
-        app.lock().expect("app lock").final_files(&tools)
+        // The copy to Documents can wait on a macOS permission prompt, so it runs after the lock is let go.
+        let (mut shown, job) = app.lock().expect("app lock").final_files_pending(&tools)?;
+        if let Some(job) = job {
+            job.run(&mut shown);
+        }
+        Ok(shown)
     })
     .await?
 }
@@ -1423,7 +1550,7 @@ fn set_guardrail(
     ask: bool,
 ) -> Result<(), String> {
     if sh.active.load(Ordering::SeqCst) > 0 {
-        return Err("Stop the current work before changing guardrails".into());
+        return Err("Stop the current work before changing what it may do".into());
     }
     sh.app
         .lock()
@@ -1434,33 +1561,27 @@ fn set_guardrail(
 #[tauri::command]
 fn decide_actions(
     sh: State<'_, Shared>,
+    project: String,
     ids: Vec<String>,
     approve: bool,
-    by: String,
 ) -> Result<(), String> {
-    sh.app
-        .lock()
-        .expect("app lock")
-        .decide_actions(&ids, approve, &by, now())
+    let app = sh.app.lock().expect("app lock");
+    app.require_open(&project)?;
+    app.decide_actions(&ids, approve, &sh.approver, now())
 }
 
 #[tauri::command]
 fn escalate_finding(
     sh: State<'_, Shared>,
+    project: String,
     artifact: String,
     finding: String,
     base: String,
     reason: String,
-    by: String,
 ) -> Result<(), String> {
-    sh.app.lock().expect("app lock").escalate_finding(
-        &artifact,
-        &finding,
-        &base,
-        &reason,
-        &by,
-        now(),
-    )
+    let mut app = sh.app.lock().expect("app lock");
+    app.require_open(&project)?;
+    app.escalate_finding(&artifact, &finding, &base, &reason, &sh.approver, now())
 }
 
 #[tauri::command]
@@ -1473,15 +1594,14 @@ fn stage_code_draft(sh: State<'_, Shared>, task: String) -> Result<(), String> {
 #[tauri::command]
 fn decide_code(
     sh: State<'_, Shared>,
+    project: String,
     task: String,
     patch_hash: String,
     approve: bool,
-    by: String,
 ) -> Result<(), String> {
-    sh.app
-        .lock()
-        .expect("app lock")
-        .decide_code(&task, &patch_hash, approve, &by, now())
+    let app = sh.app.lock().expect("app lock");
+    app.require_open(&project)?;
+    app.decide_code(&task, &patch_hash, approve, &sh.approver, now())
 }
 #[tauri::command]
 fn reconcile_code(
@@ -1522,6 +1642,15 @@ async fn export_run_report(sh: State<'_, Shared>) -> Result<Value, String> {
             .export_run_report(&file_tools(&home), now())
     })
     .await?
+}
+
+/// The raw records behind the run report, as an advanced export.
+#[tauri::command]
+fn export_run_report_raw(sh: State<'_, Shared>) -> Result<Value, String> {
+    sh.app
+        .lock()
+        .expect("app lock")
+        .export_run_report_raw(now())
 }
 
 #[tauri::command]
@@ -1629,17 +1758,27 @@ fn usage_everywhere(sh: State<'_, Shared>) -> Value {
     sh.app.lock().expect("app lock").usage_everywhere()
 }
 
-/// `path` if it is inside the open project's exports folder.
+/// `path` if it is inside the open project's exports folder, or else inside the SproutCrew folder in Documents where
+/// the finished files are copied. The exports folder is checked first, so showing a file made in the project never
+/// looks inside Documents. Nothing else in Documents can be opened or shown.
 fn exported(sh: &Shared, path: &str) -> Result<std::path::PathBuf, String> {
-    let root = sh.app.lock().expect("app lock").project_root()?;
-    let exports = root.join("exports");
     let p = std::fs::canonicalize(path).map_err(|_| "that file is not there".to_string())?;
-    let exports =
-        std::fs::canonicalize(exports).map_err(|_| "there is no exports folder".to_string())?;
-    if !p.starts_with(&exports) {
-        return Err("only files made by BFF in this project can be shown".into());
+    let exports = sh
+        .app
+        .lock()
+        .expect("app lock")
+        .project_root()
+        .map(|root| root.join("exports"));
+    if exports.is_ok_and(|e| bff_core::documents::within(&e, &p)) {
+        return Ok(p);
     }
-    Ok(p)
+    let copies = std::env::var("HOME")
+        .map(|h| std::path::Path::new(&h).join("Documents/SproutCrew"))
+        .unwrap_or_default();
+    if bff_core::documents::within(&copies, &p) {
+        return Ok(p);
+    }
+    Err("only files made by SproutCrew can be shown".into())
 }
 
 /// Opens a finished Word file, PDF, or deck in the app the person uses for it.
@@ -1660,13 +1799,16 @@ fn open_export(sh: State<'_, Shared>, path: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Shows a file made for the client in Finder. Only files inside the open project's exports folder.
+/// Shows a file made for the client in Finder, or opens the folder when it is one. Only files inside the open
+/// project's exports folder or the SproutCrew folder in Documents.
 #[tauri::command]
 fn reveal_export(sh: State<'_, Shared>, path: String) -> Result<(), String> {
     let p = exported(&sh, &path)?;
-    std::process::Command::new("/usr/bin/open")
-        .arg("-R")
-        .arg(&p)
+    let mut open = std::process::Command::new("/usr/bin/open");
+    if !p.is_dir() {
+        open.arg("-R");
+    }
+    open.arg(&p)
         .env_clear()
         .spawn()
         .map(|_| ())
@@ -1928,10 +2070,33 @@ fn remove_source(sh: State<'_, Shared>, id: String) -> Result<(), String> {
     sh.app.lock().expect("app lock").remove_source(&id)
 }
 
-/// Asks the run in progress to stop. The child process is ended and the step is recorded as stopped.
+/// A run of steps begins. Until `end_run`, no other project is opened or made, even between two steps. A stop
+/// from an earlier run is cleared here, when no step is still in flight. Refused when a run is already going, which
+/// is what a project left and opened again would otherwise start a second time (a second paid run of the same step).
 #[tauri::command]
-fn stop_run(sh: State<'_, Shared>) {
+fn begin_run(sh: State<'_, Shared>) -> Result<(), String> {
+    if !sh.hold.begin() {
+        return Err(RUN_GOING.into());
+    }
+    clear_stop(&sh);
+    Ok(())
+}
+
+/// A run of steps is over, however it ended. Also called when the window loads, when no run can still be going.
+#[tauri::command]
+fn end_run(sh: State<'_, Shared>) {
+    sh.hold.end();
+}
+
+/// Asks the run in progress to stop. The child process is ended and the step is recorded as stopped. `steps` is
+/// true when the run is a run of the plan's steps: the stop is then written down, so the project says "Stopped by
+/// you" and the Decision inbox lists it until a step starts again. A stop of anything else is only a stop.
+#[tauri::command]
+fn stop_run(sh: State<'_, Shared>, steps: Option<bool>) {
     sh.cancel.store(true, Ordering::SeqCst);
+    if steps == Some(true) {
+        let _ = sh.app.lock().expect("app lock").record_stop(now());
+    }
 }
 
 /// Makes outbox drafts from the posts in a step's newest result. Drafts only: each still needs approval.
@@ -1954,8 +2119,10 @@ fn outbox_draft(sh: State<'_, Shared>, text: String, at: u64) -> Result<String, 
 }
 
 #[tauri::command]
-fn outbox_approve(sh: State<'_, Shared>, id: String, by: String) -> Result<(), String> {
-    sh.app.lock().expect("app lock").outbox_approve(&id, &by)
+fn outbox_approve(sh: State<'_, Shared>, project: String, id: String) -> Result<(), String> {
+    let mut app = sh.app.lock().expect("app lock");
+    app.require_open(&project)?;
+    app.outbox_approve(&id, &sh.approver)
 }
 
 #[tauri::command]
@@ -1972,7 +2139,10 @@ fn outbox_send_due(sh: State<'_, Shared>) -> Result<Vec<Value>, String> {
 #[tauri::command]
 fn set_presentation(sh: State<'_, Shared>, on: bool) {
     let home = std::env::var("HOME").unwrap_or_default();
-    sh.app.lock().expect("app lock").set_presentation(on, &home);
+    let mut app = sh.app.lock().expect("app lock");
+    // The approver's name is personal too, so it is hidden with the home folder and email addresses.
+    app.set_presentation_name(&sh.approver);
+    app.set_presentation(on, &home);
 }
 
 #[tauri::command]
@@ -2185,13 +2355,15 @@ fn default_reviewer(sh: State<'_, Shared>, route: String) -> [&'static str; 3] {
     [r, model, "high"]
 }
 
-/// Fetches OpenRouter's model list: the account's own filtered list when a key is saved, else the public one.
-fn fetch_catalog(now: u64) -> Option<bff_core::catalog::Saved> {
+/// Fetches OpenRouter's model list: the account's own filtered list when `with_key` and a key is saved, else the
+/// public one. It gives up on each address after a few seconds. The launch-time refresh passes `false`, so the
+/// Keychain is read only when a person's own action needs the list.
+fn fetch_catalog(now: u64, with_key: bool) -> Option<bff_core::catalog::Saved> {
     use bff_core::connector::{Credentials, Transport};
-    let mut http = bff_core::http::HttpClient::new(&["openrouter.ai"]);
+    let mut http = bff_core::http::HttpClient::quick(&["openrouter.ai"]);
     let keys = bff_core::keychain::Keychain::new();
     let mut tries = Vec::new();
-    if let Some(key) = keys.get("openrouter-api") {
+    if let Some(key) = with_key.then(|| keys.get("openrouter-api")).flatten() {
         tries.push(bff_core::connector::Request {
             url: bff_core::catalog::USER_URL.into(),
             headers: vec![("Authorization".into(), format!("Bearer {}", key.token()))],
@@ -2217,40 +2389,57 @@ static CATALOG_REFRESHING: AtomicBool = AtomicBool::new(false);
 
 /// The saved list, fetched first when there is none. A list older than a day is returned as it is and
 /// refreshed in the background. With no list and no connection, the defaults come back marked offline.
+/// Every fetch goes through `catalog::ensure`, so the plan, the picker and the start-up refresh share one.
 fn catalog(data: &std::path::Path) -> (Vec<bff_core::catalog::Model>, Option<u64>, bool) {
-    let t = now();
+    catalog_with(data, true)
+}
+
+/// [`catalog`], reading the Keychain for the account's own list only when `with_key`.
+fn catalog_with(
+    data: &std::path::Path,
+    with_key: bool,
+) -> (Vec<bff_core::catalog::Model>, Option<u64>, bool) {
     match bff_core::catalog::load(data) {
         Some(saved) => {
-            if saved.stale(t) && !CATALOG_REFRESHING.swap(true, Ordering::SeqCst) {
+            if saved.stale(now()) && !CATALOG_REFRESHING.swap(true, Ordering::SeqCst) {
                 let dir = data.to_path_buf();
                 std::thread::spawn(move || {
-                    if let Some(fresh) = fetch_catalog(now()) {
-                        let _ = bff_core::catalog::store(&dir, &fresh);
-                    }
+                    let _ = bff_core::catalog::ensure(&dir, now(), |t| fetch_catalog(t, with_key));
                     CATALOG_REFRESHING.store(false, Ordering::SeqCst);
                 });
             }
             (saved.models, Some(saved.fetched_at), false)
         }
-        None => match fetch_catalog(t) {
-            Some(fresh) => {
-                let _ = bff_core::catalog::store(data, &fresh);
-                (fresh.models, Some(t), false)
-            }
+        None => match bff_core::catalog::ensure(data, now(), |t| fetch_catalog(t, with_key)) {
+            Some(fresh) => (fresh.models, Some(fresh.fetched_at), false),
             None => (bff_core::catalog::offline(), None, true),
         },
     }
 }
 
+/// What the plan screen shows: the estimate, and why its prices are missing when the list could not be loaded.
+#[derive(serde::Serialize)]
+struct PlanPreflight {
+    #[serde(flatten)]
+    estimate: bff_core::estimate::Estimate,
+    prices_error: Option<&'static str>,
+}
+
 /// What the open plan would ask of the providers: steps, models, requests on the free allowance against what is
 /// left today, and the estimated and maximum cost, unknown where a price is. Read only; it decides nothing.
 #[tauri::command]
-async fn plan_preflight(sh: State<'_, Shared>) -> Result<bff_core::estimate::Estimate, String> {
+async fn plan_preflight(sh: State<'_, Shared>) -> Result<PlanPreflight, String> {
     let data = sh.data.clone();
     let app = sh.app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let routes = api_config(&data);
-        let saved = bff_core::catalog::load(&data);
+        // The prices come first: with no saved list, wait for the fetch the picker would start, so a new Mac does
+        // not show "unknown" for a list that is a second away.
+        let saved = bff_core::catalog::load(&data)
+            .or_else(|| bff_core::catalog::ensure(&data, now(), |t| fetch_catalog(t, true)));
+        let prices_error = saved
+            .is_none()
+            .then_some("Couldn't load model prices; check the connection.");
         let needs_free = {
             let a = app.lock().expect("app lock");
             a.plan_estimate(&routes, saved.as_ref(), None)?
@@ -2268,7 +2457,11 @@ async fn plan_preflight(sh: State<'_, Shared>) -> Result<bff_core::estimate::Est
             })
             .flatten();
         let a = app.lock().expect("app lock");
-        a.plan_estimate(&routes, saved.as_ref(), left)
+        let estimate = a.plan_estimate(&routes, saved.as_ref(), left)?;
+        Ok(PlanPreflight {
+            estimate,
+            prices_error,
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2366,15 +2559,24 @@ fn main() {
             .unwrap_or_else(|e| {
                 bff_core::spend::SpendBook::unreadable(bff_core::spend::Unit::Tokens, &e)
             });
+            let mut projects = App::new(data.join("projects"));
+            // Finished files are copied to the SproutCrew folder inside Documents, where the person finds them.
+            if let Ok(home) = std::env::var("HOME") {
+                projects.set_documents_dir(std::path::Path::new(&home).join("Documents"));
+            }
+            // One count of engine runs in flight, so the project list and the shell agree on what is running.
+            let active = projects.running();
             app.manage(Shared {
-                app: Arc::new(Mutex::new(App::new(data.join("projects")))),
+                app: Arc::new(Mutex::new(projects)),
+                approver: bff_core::approver::current(),
                 latch: bff_core::stop::StopLatch::new(),
                 spend: Arc::new(Mutex::new(spend)),
                 tokens: Arc::new(Mutex::new(tokens)),
                 tools: Arc::new(Mutex::new(find_tools(&data))),
                 data,
                 cancel: Arc::new(AtomicBool::new(false)),
-                active: Arc::new(AtomicUsize::new(0)),
+                hold: bff_core::app::RunHold::new(active.clone()),
+                active,
                 swept,
                 preview: Mutex::new(None),
                 connectors: Arc::new(Mutex::new({
@@ -2385,6 +2587,12 @@ fn main() {
                 })),
             });
             refresh_runnable(&app.state::<Shared>());
+            // Prices for the plan screen: fetches the public model list when there is none, and refreshes one over a
+            // day old. Done here so the list is usually saved before anyone reaches a plan. No key is read here.
+            let list_dir = app.state::<Shared>().data.clone();
+            std::thread::spawn(move || {
+                catalog_with(&list_dir, false);
+            });
             attention::start(app.handle(), &app.state::<Shared>().data)?;
             menu_bar(app.handle())?;
             // Registered only when the build carries an updater key, so a build without one still starts.
@@ -2455,6 +2663,10 @@ fn main() {
             propose_plan,
             save_plan,
             approve,
+            mark_reviewed,
+            decided_list,
+            policy_overview,
+            set_policy_defaults,
             run_stage,
             ready_stages,
             run_wave,
@@ -2492,6 +2704,8 @@ fn main() {
             reveal_code,
             link_project,
             unlink_project,
+            fact_questions,
+            answer_facts,
             add_note,
             remove_note,
             set_exercise_rules,
@@ -2515,8 +2729,11 @@ fn main() {
             remove_source,
             set_source_role,
             stop_run,
+            begin_run,
+            end_run,
             api_routes,
             spend_status,
+            set_project_limit,
             raise_project_limit,
             export_usage_csv,
             save_result_to_folder,
@@ -2553,6 +2770,7 @@ fn main() {
             export_package,
             export_decision_log,
             export_run_report,
+            export_run_report_raw,
             decision_inbox,
             stage_code_draft,
             decide_code,
@@ -2572,6 +2790,7 @@ fn main() {
             set_prototype,
             set_keynote,
             keynote_installed,
+            path_info,
             deselect_tool,
             start_preview,
             preflight,

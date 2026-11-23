@@ -42,3 +42,45 @@ test('no page loads a script or style from another site', () => {
     assert.doesNotMatch(read(page), /<script[^>]+src="https?:\/\/|<link[^>]+rel="(?:stylesheet|preload)"[^>]+href="https?:\/\//, page);
   }
 });
+
+test('release timeline controls reach each version and its complete notes', () => {
+  const page = read('changelog.html');
+  const releases = [...page.matchAll(/<article class="release" id="([^"]+)"/g)].map(match => match[1]);
+  assert.ok(releases.length >= 2);
+  for (const id of releases) {
+    assert.ok(page.includes(`href="#${id}" data-milestone=`));
+    assert.ok(page.includes(`href="#notes-${id}"`));
+    assert.ok(page.includes(`<details id="notes-${id}"><summary>`));
+  }
+});
+
+test('the download and notices pages show the current release without JavaScript', () => {
+  const release = JSON.parse(read('release.json'));
+  const download = read('download.html');
+  const notices = read('software-notices.html');
+  if (release.available !== true) {
+    assert.ok(!download.includes('download.sproutcrew.app'), 'no installer link while the release is unavailable');
+    assert.ok(!notices.includes('download.sproutcrew.app'), 'no materials links while the release is unavailable');
+    return;
+  }
+  assert.ok(download.includes(`<a id="release-download" class="button" href="${release.url}">`), 'download button links to the installer');
+  assert.ok(download.includes(`<code id="sha256">${release.sha256}</code>`), 'download page shows the installer checksum');
+  assert.ok(download.includes(`SproutCrew ${release.version} · Free public beta`), 'download page names the version');
+  assert.ok(!/id="release-checksum" hidden/.test(download), 'checksum is visible');
+  assert.ok(notices.includes(`<a id="source-download" href="${release.materials.source.url}">`));
+  assert.ok(notices.includes(`<a id="notices-download" href="${release.materials.notices.url}">`));
+  assert.ok(notices.includes(`<code id="source-sha256">${release.materials.source.sha256}</code>`));
+  assert.ok(notices.includes(`<code id="notices-sha256">${release.materials.notices.sha256}</code>`));
+  assert.ok(!/id="materials-checksums" hidden/.test(notices), 'materials checksums are visible');
+  for (const html of [download, notices]) assert.ok(!html.includes('after the final release checks'), 'no pre-release wording');
+});
+
+test('the help search data parses, and every entry in it is an answer on the help page', () => {
+  const entries = new Function(`${read('assets/help-data.js')}\n;return helpEntries;`)();
+  assert.ok(Array.isArray(entries) && entries.length > 0);
+  const page = read('help.html');
+  for (const entry of entries) {
+    assert.ok(entry.id && entry.q && entry.a, `entry ${entry.id} has an id, a question and an answer`);
+    assert.ok(page.includes(`id="${entry.id}"`), `help.html has no answer with id ${entry.id}`);
+  }
+});

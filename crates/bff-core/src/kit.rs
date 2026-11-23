@@ -57,7 +57,7 @@ pub fn has_page(project_root: &Path) -> bool {
 pub fn ready(project_root: &Path) -> Result<PathBuf, String> {
     let dir = folder(project_root);
     if !page(&dir) {
-        return Err("This project has no prototype yet. Add a step for the Builder that asks for one, in Shape the steps before you approve the plan, or ask the coordinator to add it.".into());
+        return Err("This project has no prototype yet. Add a step for the Builder that asks for one, in Shape the steps before you approve the plan, or ask for a change to add it.".into());
     }
     let problems = if dir.ends_with("prototype") {
         smoke(&dir)

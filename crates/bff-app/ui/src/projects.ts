@@ -22,6 +22,16 @@ export function suggestName(kind: string, brief: string): string {
   const base = (words.length ? words.join("-") : kind.replace(/_/g, "-")).slice(0, 48).replace(/-+$/, "");
   return base || "project";
 }
+/** `base`, or `base 2`, `base 3`… when a project (open or archived) already has the name, within the 48-character suggestion cap. Folders ignore case on a Mac. */
+export function uniqueName(base: string, taken: string[], sep = " "): string {
+  const used = new Set(taken.map((name) => name.toLowerCase()));
+  if (!used.has(base.toLowerCase())) return base;
+  for (let n = 2; ; n += 1) {
+    const suffix = `${sep}${n}`;
+    const name = `${base.slice(0, 48 - suffix.length)}${suffix}`;
+    if (!used.has(name.toLowerCase())) return name;
+  }
+}
 const STOP = new Set(["the", "and", "for", "our", "about", "with", "that", "this", "from", "what", "should", "write", "make", "use", "into", "are", "how", "did", "does", "can", "could", "would", "will", "why", "who", "when", "where", "which", "was", "were", "has", "have", "its", "they", "their", "please", "help", "need", "want"]);
 
 /** When something last happened, short and plain: "Just now", "12 min ago", "Today 6:54 PM", "Yesterday", "Nov 3". */

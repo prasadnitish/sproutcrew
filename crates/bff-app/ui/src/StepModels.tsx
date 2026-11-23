@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, Plan, Stage, StepModel } from "./api";
-import { modelOf, sameProviderCheck } from "./graph";
+import { modelOf } from "./graph";
+import { secondCheckOf } from "./secondcheck";
 import { Choice, ProviderPick } from "./Pick";
 import { Ctx, effort, Monogram, provider, roleName, text } from "./ui";
 
@@ -47,7 +48,7 @@ export default function StepModels({ ctx, plan }: { ctx: Ctx; plan: Plan }) {
               <span className="crew-main">
                 <strong>{st.title}</strong>
                 <span className="muted">{roleName(st.owner_role)}{m ? ` · ${provider(m.route)} ${m.model}, ${effort(m.effort).toLowerCase()} effort` : ""}{st.uses ? " · chosen for this step" : ""}</span>
-                {sameProviderCheck(plan.team, stages, st, checking) && <span className="muted">This check is on the same provider as all the work it reads, so it is not an independent second opinion.</span>}
+                {checking(st.owner_role) && <span className="muted">{secondCheckOf(plan.team, stages, checking, st)}</span>}
               </span>
               <button className="ghost" aria-expanded={open === st.id} onClick={() => setOpen(open === st.id ? "" : st.id)}>Change</button>
             </li>,

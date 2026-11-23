@@ -8,7 +8,9 @@ export type Inline =
   | { t: "code"; v: string }
   | { t: "strong"; c: Inline[] }
   | { t: "em"; c: Inline[] }
-  | { t: "link"; v: string; href: string };
+  | { t: "link"; v: string; href: string }
+  // A detail only the person can supply, which a writing step marked as [NEEDED: what is missing].
+  | { t: "needed"; v: string };
 
 export type Block =
   | { t: "h"; n: number; c: Inline[] }
@@ -20,13 +22,17 @@ export type Block =
   | { t: "table"; head: Inline[][]; rows: Inline[][][] };
 
 const SAFE = /^(https?:\/\/|mailto:)/i;
-const TOKEN = /(`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\s][^*\n]*\*|_[^_\s][^_\n]*_|\[[^\]\n]+\]\([^)\s]+\))/;
+// A detail only the person can supply: [NEEDED: what is missing], with one level of brackets allowed inside.
+const NEEDED = /^\[NEEDED:((?:[^[\]]|\[[^\]]*\])*)\]$/i;
+const TOKEN = /(\[NEEDED:(?:[^[\]\n]|\[[^\]\n]*\])*\]|`[^`\n]+`|\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\s][^*\n]*\*|_[^_\s][^_\n]*_|\[[^\]\n]+\]\([^)\s]+\))/i;
 
 export function inline(src: string): Inline[] {
   const out: Inline[] = [];
   for (const part of src.split(TOKEN)) {
     if (!part) continue;
-    if (part.startsWith("`") && part.endsWith("`") && part.length > 2) out.push({ t: "code", v: part.slice(1, -1) });
+    const need = NEEDED.exec(part);
+    if (need) out.push({ t: "needed", v: need[1].replace(/\s+/g, " ").trim() });
+    else if (part.startsWith("`") && part.endsWith("`") && part.length > 2) out.push({ t: "code", v: part.slice(1, -1) });
     else if ((part.startsWith("**") && part.endsWith("**") && part.length > 4) || (part.startsWith("__") && part.endsWith("__") && part.length > 4)) out.push({ t: "strong", c: inline(part.slice(2, -2)) });
     else if ((part.startsWith("*") && part.endsWith("*") && part.length > 2) || (part.startsWith("_") && part.endsWith("_") && part.length > 2)) out.push({ t: "em", c: inline(part.slice(1, -1)) });
     else {

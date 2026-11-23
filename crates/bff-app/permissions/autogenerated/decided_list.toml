@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-decided-list"
+description = "Enables the decided_list command without any pre-configured scope."
+commands.allow = ["decided_list"]
+
+[[permission]]
+identifier = "deny-decided-list"
+description = "Denies the decided_list command without any pre-configured scope."
+commands.deny = ["decided_list"]

@@ -294,6 +294,32 @@ impl SpendBook {
         self.cap = new_cap;
         self.save()
     }
+
+    /// Sets the cap to any amount at or above what is spent and held. Used for a project's own dollar limit, which
+    /// can go down as well as up. A request already held still settles: its hold is part of the floor.
+    pub fn set_cap(&mut self, new_cap: u64) -> Result<(), String> {
+        if let Some(why) = &self.locked {
+            return Err(SpendBook::lock_message(why));
+        }
+        if new_cap == 0 {
+            return Err("The limit has to be more than nothing.".into());
+        }
+        let floor = self.spent + self.held.values().sum::<u64>();
+        if new_cap < floor {
+            // Round up to whole cents so the amount shown is never below the real floor.
+            let cents = floor.div_ceil(10_000);
+            let shown = if cents >= 100 {
+                usd(floor)
+            } else {
+                format!("{cents}¢")
+            };
+            return Err(format!(
+                "You've already spent {shown} on this project, so the limit can't go below that."
+            ));
+        }
+        self.cap = new_cap;
+        self.save()
+    }
 }
 
 #[cfg(test)]
@@ -392,10 +418,62 @@ mod tests {
             b.raise_cap(5_000_000).is_err(),
             "the same cap is not a raise"
         );
-        assert!(b.raise_cap(1_000_000).is_err(), "a lower cap is refused");
         b.raise_cap(10_000_000).unwrap();
         b.reserve("b", 200_000).unwrap();
         assert_eq!(SpendBook::open(&p).unwrap().status().cap, 10_000_000);
+    }
+
+    /// A book with 20,000 spent and 30,000 held, under a $5 cap.
+    fn book_with_spent_and_held() -> SpendBook {
+        let mut b = SpendBook::memory(5_000_000);
+        b.reserve("a", 20_000).unwrap();
+        b.settle("a", Some(20_000));
+        b.reserve("b", 30_000).unwrap();
+        b
+    }
+
+    #[test]
+    fn a_lower_cap_above_what_is_spent_and_held_is_accepted() {
+        let mut b = book_with_spent_and_held();
+        b.set_cap(50_000).unwrap();
+        assert_eq!(b.status().cap, 50_000);
+    }
+
+    #[test]
+    fn a_cap_below_spent_plus_held_is_refused_in_plain_words() {
+        let mut b = book_with_spent_and_held();
+        assert_eq!(
+            b.set_cap(49_999).unwrap_err(),
+            "You've already spent 5¢ on this project, so the limit can't go below that."
+        );
+        assert_eq!(
+            b.status().cap,
+            5_000_000,
+            "a refused change leaves the cap alone"
+        );
+        assert!(b.set_cap(0).is_err(), "zero is not a limit");
+    }
+
+    #[test]
+    fn a_held_request_still_settles_after_the_cap_is_lowered() {
+        let mut b = book_with_spent_and_held();
+        b.set_cap(50_000).unwrap();
+        b.settle("b", Some(30_000));
+        let s = b.status();
+        assert_eq!(
+            (s.cap, s.spent, s.held, s.available),
+            (50_000, 50_000, 0, 0)
+        );
+    }
+
+    #[test]
+    fn set_cap_moves_the_limit_either_way_and_survives_a_restart() {
+        let p = tmp("set-cap");
+        let mut b = SpendBook::open(&p).unwrap();
+        b.set_cap(2_000_000).unwrap();
+        assert_eq!(SpendBook::open(&p).unwrap().status().cap, 2_000_000);
+        b.set_cap(8_000_000).unwrap();
+        assert_eq!(SpendBook::open(&p).unwrap().status().cap, 8_000_000);
     }
 
     #[test]
@@ -453,5 +531,14 @@ mod tests {
             .unwrap_err()
             .contains("could not be read"));
         assert_eq!(b.status().available, 0);
+    }
+
+    #[test]
+    fn a_locked_book_refuses_set_cap() {
+        let mut b = SpendBook::unreadable(Unit::Dollars, "spend.json: bad JSON");
+        assert!(b
+            .set_cap(1_000_000)
+            .unwrap_err()
+            .contains("could not be read"));
     }
 }

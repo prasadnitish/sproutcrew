@@ -20,7 +20,6 @@ if (download || source || notices) {
       if (node) { node.href = url; node.hidden = false; }
     }
     setText('#release-title', `SproutCrew ${release.version} · Free public beta`);
-    setText('#release-status', 'Signed and notarized for Mac. Review the setup guide and beta limits before your first project.');
     setText('#sha256', release.sha256);
     setText('#source-sha256', release.materials.source.sha256);
     setText('#notices-sha256', release.materials.notices.sha256);

@@ -12,6 +12,8 @@ use crate::workspace::Project;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 
 pub struct App {
     base: PathBuf,
@@ -20,11 +22,78 @@ pub struct App {
     peer: Option<Peer>,
     /// When set, everything shown is scrubbed of email addresses, the home folder path, and token shapes.
     presentation: Option<String>,
+    /// The approver's name, hidden in presentation mode as "you". Shorter than three characters it is left alone.
+    presentation_name: String,
     /// The routes this Mac can run, when known. A plan SproutCrew makes is moved onto them before approval.
     runnable: Option<Vec<String>>,
     /// The person's Settings switch for projects that write running code, when known. With `Some(false)` an edited
     /// plan or a coordinator change may not add a code-writing step.
     code_allowed: Option<bool>,
+    /// The person's Documents folder, when the app knows it. Finished files are copied into a SproutCrew folder
+    /// inside it. Unset in tests, so none writes to the real one.
+    documents: Option<PathBuf>,
+    /// Engine runs in flight, counted by the shell. While any is, another project cannot be opened, because a
+    /// step that returns late records its result in whichever project is open.
+    running: Arc<AtomicUsize>,
+}
+
+/// The refusal while a step is in flight: opening or making a project then would send the step's late result to
+/// the wrong place.
+const FINISHING: &str = "Finishing the step that was running…";
+/// Whether the name or the brief holds text shaped like a key. The brief gets the full scan. A name is only
+/// refused for a named key shape: a long name with a digit in it, such as one the app suggests from the brief,
+/// has the shape of a "high-entropy token" and is not a key.
+fn key_shaped(name: &str, brief: &str) -> bool {
+    name_key_shaped(name) || crate::secrets::has_secret(&crate::secrets::scan_prose(brief))
+}
+
+/// Whether a project name has the shape of a named key (a provider, GitHub, Slack, AWS or Google key, a JWT).
+fn name_key_shaped(name: &str) -> bool {
+    crate::secrets::scan_prose(name)
+        .iter()
+        .any(|f| f.class == crate::secrets::Class::Secret && f.kind != "high-entropy token")
+}
+/// The prefix lets the page offer "Move it there" and "It isn't a key" instead of only showing the text.
+pub const KEY_IN_BRIEF: &str =
+    "key-in-brief: This looks like a key. Keys go in the Connect box, not the brief.";
+
+/// A hold on the in-flight count for the whole of a run of steps, so another project stays closed in the moment
+/// between two steps too. It counts once however often it is taken, and it is let go once.
+pub struct RunHold {
+    count: Arc<AtomicUsize>,
+    held: AtomicBool,
+}
+
+impl RunHold {
+    pub fn new(count: Arc<AtomicUsize>) -> RunHold {
+        RunHold {
+            count,
+            held: AtomicBool::new(false),
+        }
+    }
+
+    /// Takes the hold. False when it was already held, which means a run is already going and this call took
+    /// nothing: the caller must not start a second one, and must not `end` the first.
+    #[must_use]
+    pub fn begin(&self) -> bool {
+        if self.held.swap(true, Ordering::SeqCst) {
+            return false;
+        }
+        self.count.fetch_add(1, Ordering::SeqCst);
+        true
+    }
+
+    pub fn end(&self) {
+        if self.held.swap(false, Ordering::SeqCst) {
+            self.count.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Pieces of work in flight, not counting this hold.
+    pub fn steps_in_flight(&self) -> usize {
+        let held = usize::from(self.held.load(Ordering::SeqCst));
+        self.count.load(Ordering::SeqCst).saturating_sub(held)
+    }
 }
 
 /// What a wave reports: each step it ran and how it went, in the order asked.
@@ -154,6 +223,251 @@ fn folder_files_within(root: &Path, max_bytes: u64) -> Vec<PathBuf> {
     out
 }
 
+/// What a finished result still lacks: details only the person can supply, and what to do about them.
+#[derive(Debug, Default)]
+pub(crate) struct Details {
+    /// What is still missing from the final text as it is read: the markers the person has not answered, and the
+    /// items listed as still open. After "Finish with what I have" the markers are gone from it, so only the items
+    /// are left.
+    pub gaps: Vec<crate::gaps::Gap>,
+    /// The steps that get the person's answer as a note.
+    pub note_steps: Vec<String>,
+    /// The steps to run again once it is saved, in order.
+    pub rerun: Vec<String>,
+    /// The person chose to finish around the missing details, and the step ran again after that.
+    pub accepted: bool,
+    /// The details the piece was finished without: the markers still in the text when the person chose that.
+    pub left_out: Vec<crate::gaps::Gap>,
+    /// The `what: answer` lines of every answer the person has saved, oldest first.
+    answers: Vec<String>,
+    /// The steps whose newest result is the final document or deck.
+    finals: Vec<String>,
+}
+
+impl Details {
+    /// Whether the person still has something to supply.
+    pub fn open(&self) -> bool {
+        !self.gaps.is_empty() && !self.accepted
+    }
+
+    /// The text of a step's newest result as it is read: each marker the person answered is replaced by the answer,
+    /// and, once they chose to finish with what they have, each marker left is taken out with what only it held up.
+    /// The result on disk is not changed. A step that is not the final document or deck is returned as it is.
+    pub fn resolve(&self, step: &str, raw: &str) -> String {
+        if !self.finals.iter().any(|f| f == step) {
+            return raw.to_string();
+        }
+        let filled = crate::gaps::fill(raw, &crate::gaps::answers_for(raw, &self.answers));
+        if self.accepted {
+            crate::gaps::drop_unfilled(&filled)
+        } else {
+            filled
+        }
+    }
+}
+
+/// The details missing from the project's final document and deck, once every step has a result. A result's
+/// markers and the items it lists as still open are counted together, once each. A marker the person has answered
+/// counts as filled, whatever the step wrote, and the answer is put in its place when the text is read.
+pub(crate) fn finish_details(s: &Studio) -> Result<Details, String> {
+    let mut found = Details::default();
+    let Some(plan) = s.plan() else {
+        return Ok(found);
+    };
+    let artifacts = s.project.artifacts()?;
+    let named = |step: &str| artifacts.iter().any(|a| a["name"].as_str() == Some(step));
+    if !plan.stages.iter().all(|st| named(&artifact_name(&st.id))) {
+        return Ok(found);
+    }
+    // Gaps belong to a 2.1.1 plan, whose guides tell the writers to mark a missing fact. A plan made before that
+    // never asked for markers, and its "Still open before sending" section is a note for the reader, not details to
+    // fill in, so its files are offered as before.
+    if !plan
+        .stages
+        .iter()
+        .any(|st| st.guide.contains(crate::gaps::MARK))
+    {
+        return Ok(found);
+    }
+    let all_notes = crate::notes::Notes::open(&s.project.root)?;
+    found.answers = all_notes
+        .list()
+        .iter()
+        .filter(|n| n.text.starts_with(crate::gaps::DETAILS_NOTE))
+        .flat_map(|n| n.text.lines().skip(1).map(str::to_string))
+        .collect();
+    let finals = [
+        crate::package::final_step(plan, &artifacts),
+        crate::package::final_deck(plan, &artifacts),
+    ];
+    found.finals = finals.iter().flatten().cloned().collect();
+    let mut seen = std::collections::HashSet::new();
+    let mut unfilled = std::collections::HashSet::new();
+    let mut marked = Vec::new();
+    // The steps a note goes to and the steps to run again for each final step, whether or not its text has a gap.
+    let (mut all_note_steps, mut all_rerun) = (Vec::<String>::new(), Vec::<String>::new());
+    for step in finals.into_iter().flatten() {
+        let Some(file) = artifacts
+            .iter()
+            .rev()
+            .find(|a| a["name"].as_str() == Some(&step))
+            .and_then(|a| a["file"].as_str())
+        else {
+            continue;
+        };
+        let Ok(raw) = std::fs::read_to_string(s.project.root.join("artifacts").join(file)) else {
+            continue;
+        };
+        // The humaniser only rewords, so what the person supplies goes to the step it polishes, and both run again.
+        let (note, rerun): (&str, Vec<&str>) = if step == crate::workflows::POLISH_STEP
+            && plan
+                .stages
+                .iter()
+                .any(|st| st.id == crate::workflows::POLISH_SOURCE)
+        {
+            (
+                crate::workflows::POLISH_SOURCE,
+                vec![
+                    crate::workflows::POLISH_SOURCE,
+                    crate::workflows::POLISH_STEP,
+                ],
+            )
+        } else {
+            (&step, vec![&step])
+        };
+        let named_steps = |into_note: &mut Vec<String>, into_rerun: &mut Vec<String>| {
+            if !into_note.iter().any(|x| x == note) {
+                into_note.push(note.to_string());
+            }
+            for id in &rerun {
+                if !into_rerun.iter().any(|x| x == id) {
+                    into_rerun.push(id.to_string());
+                }
+            }
+        };
+        named_steps(&mut all_note_steps, &mut all_rerun);
+        let text = crate::gaps::fill(&raw, &crate::gaps::answers_for(&raw, &found.answers));
+        let gaps: Vec<_> = crate::gaps::find(&text)
+            .into_iter()
+            .filter(|g| seen.insert(g.what.to_lowercase()))
+            .collect();
+        if gaps.is_empty() {
+            continue;
+        }
+        marked.extend(
+            crate::gaps::unfilled(&text)
+                .into_iter()
+                .filter(|g| unfilled.insert(g.what.to_lowercase())),
+        );
+        found.gaps.extend(gaps);
+        named_steps(&mut found.note_steps, &mut found.rerun);
+    }
+    let events = s.journal.events()?;
+    // Whether every one of `steps` has made a result since the note was saved. The newest result of a step is the
+    // last time its file was finished; a note whose rerun failed or never started has not been acted on.
+    let finished_since = |note: &crate::notes::Note, steps: &[String]| -> bool {
+        let noted = events
+            .iter()
+            .find(|e| e.kind == "note.added" && e.payload["id"].as_str() == Some(note.id.as_str()))
+            .map(|e| e.id);
+        !steps.is_empty()
+            && steps.iter().all(|step| {
+                let Some(file) = artifacts
+                    .iter()
+                    .rev()
+                    .find(|a| a["name"].as_str() == Some(step.as_str()))
+                    .and_then(|a| a["file"].as_str())
+                else {
+                    return false;
+                };
+                events
+                    .iter()
+                    .filter(|e| {
+                        e.kind == "worker.finished" && e.payload["artifact"].as_str() == Some(file)
+                    })
+                    .map(|e| e.id)
+                    .max()
+                    .zip(noted)
+                    .is_some_and(|(done, noted)| done > noted)
+            })
+    };
+    // Finishing around the details is the person's choice for as long as the newest such note to those steps says so,
+    // and it counts once every step that was to run again has made a result after that note.
+    let newest = all_notes
+        .list()
+        .iter()
+        .rev()
+        .find(|n| {
+            found.note_steps.contains(&n.stage)
+                && [
+                    crate::gaps::WRITE_AROUND.trim_end(),
+                    crate::gaps::DETAILS_NOTE,
+                ]
+                .iter()
+                .any(|start| n.text.starts_with(start))
+        })
+        .filter(|n| n.text.starts_with(crate::gaps::WRITE_AROUND.trim_end()))
+        .cloned();
+    found.accepted = newest
+        .as_ref()
+        .is_some_and(|note| finished_since(note, &found.rerun));
+    // What the piece was finished without is what the person's newest "Finish with what I have" listed, whatever the
+    // step then did with the markers, less what they have answered since. A marker still in the text when they chose
+    // it, and so taken out when it is read, is on the list too.
+    let chose = all_notes
+        .list()
+        .iter()
+        .rev()
+        .find(|n| {
+            all_note_steps.contains(&n.stage)
+                && n.text.starts_with(crate::gaps::WRITE_AROUND.trim_end())
+        })
+        .filter(|n| finished_since(n, &all_rerun));
+    if let Some(note) = chose {
+        let mut seen = std::collections::HashSet::new();
+        found.left_out = crate::gaps::write_around_items(&note.text)
+            .into_iter()
+            .filter(|what| !crate::gaps::answered(what, &found.answers))
+            .chain(
+                marked
+                    .iter()
+                    .filter(|_| found.accepted)
+                    .map(|g| g.what.clone()),
+            )
+            .filter(|what| seen.insert(what.to_lowercase()))
+            .map(|what| crate::gaps::Gap { what })
+            .collect();
+    }
+    if found.accepted {
+        // The markers are taken out of the text when it is read, so what is left to count is the open items.
+        found.gaps = {
+            let mut seen = std::collections::HashSet::new();
+            let mut rest = Vec::new();
+            for step in found.finals.clone() {
+                let Some(file) = artifacts
+                    .iter()
+                    .rev()
+                    .find(|a| a["name"].as_str() == Some(&step))
+                    .and_then(|a| a["file"].as_str())
+                else {
+                    continue;
+                };
+                if let Ok(raw) =
+                    std::fs::read_to_string(s.project.root.join("artifacts").join(file))
+                {
+                    rest.extend(
+                        crate::gaps::find(&found.resolve(&step, &raw))
+                            .into_iter()
+                            .filter(|g| seen.insert(g.what.to_lowercase())),
+                    );
+                }
+            }
+            rest
+        };
+    }
+    Ok(found)
+}
+
 pub fn artifact_name(stage_id: &str) -> String {
     stage_id
         .chars()
@@ -165,6 +479,19 @@ pub fn artifact_name(stage_id: &str) -> String {
             }
         })
         .collect()
+}
+
+/// A hash as the screens show it: two groups of four (DESIGN_SPEC.md §5).
+pub fn short_hash(h: &str) -> String {
+    let h: String = h
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .take(8)
+        .collect();
+    if h.len() < 8 {
+        return h;
+    }
+    format!("{} {}", &h[..4], &h[4..])
 }
 
 fn gate_name(g: Gate) -> &'static str {
@@ -236,9 +563,17 @@ impl App {
             studio: None,
             peer: None,
             presentation: None,
+            presentation_name: String::new(),
             runnable: None,
             code_allowed: None,
+            documents: None,
+            running: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    /// The count of engine runs in flight. The shell raises it when work starts and lowers it when the work returns.
+    pub fn running(&self) -> Arc<AtomicUsize> {
+        self.running.clone()
     }
 
     /// The projects in use. An archived project is left out, so nothing can pick it by accident.
@@ -332,8 +667,16 @@ impl App {
                             row["steps_failed"] = json!(studio.failed_stages().unwrap_or_default().iter().filter(|(id, _)| plan.stages.iter().any(|st| &st.id == id)).count());
                             row["outcome"] = json!(crate::workflows::Workflow::of_plan(plan).map(|w| w.name()));
                         }
+                        // A finished draft that still lacks details only the person can supply.
+                        if let Some(d) = finish_details(&studio).ok().filter(Details::open) {
+                            row["state"] = json!("needs_details");
+                            row["details_missing"] = json!(d.gaps.len());
+                        }
                         row["last_at"] = json!(studio.journal.events().ok().and_then(|e| e.last().map(|e| e.at)));
-                        row["approved"] = json!(studio.approval_by().is_some());
+                        // Approved means the approval still holds, as the board checks it, not that one was ever made.
+                        row["approved"] = json!(studio.gate() == Gate::Allowed);
+                        row["reviewed"] = json!(crate::decision_inbox::is_finished(&studio)
+                            && crate::decision_inbox::is_reviewed(&studio).unwrap_or(false));
                     }
                     row
                 })
@@ -341,16 +684,55 @@ impl App {
         )
     }
 
-    /// Creates a project and opens it.
+    /// Creates a project and opens it. Text shaped like a key in the brief or the name is refused.
     pub fn create_project(&mut self, name: &str, brief: &str, now: u64) -> Result<(), String> {
+        self.create_project_allowing(name, brief, now, false)
+    }
+
+    /// As `create_project`. `allow_key_shape` is the person's "It isn't a key", for a brief that only looks like one.
+    pub fn create_project_allowing(
+        &mut self,
+        name: &str,
+        brief: &str,
+        now: u64,
+        allow_key_shape: bool,
+    ) -> Result<(), String> {
+        // The new project becomes the open one, which is where a step still in flight would record its result.
+        if self.running.load(Ordering::SeqCst) > 0 {
+            return Err(FINISHING.into());
+        }
+        // The name becomes a folder name and the brief goes to models, so a key must not get in through either.
+        // The message never repeats the text; the page finds the match itself.
+        if !allow_key_shape && key_shaped(name, brief) {
+            return Err(KEY_IN_BRIEF.into());
+        }
         if crate::workspace::valid_name(name) && self.is_archived(name) {
             return Err(format!(
                 "An archived project is named {name}. Restore it, or choose another name."
             ));
         }
+        if crate::workspace::valid_name(name)
+            && std::fs::symlink_metadata(self.base.join(name)).is_ok()
+        {
+            return Err(format!("A project called \"{name}\" already exists."));
+        }
         std::fs::create_dir_all(&self.base).map_err(|e| e.to_string())?;
         let project = Project::create(&self.base, name, brief, now)?;
-        self.attach(Studio::open(project)?, name)
+        self.attach(Studio::open(project)?, name)?;
+        self.record_defaults(now)
+    }
+
+    /// A new project keeps the policy defaults it was made with, so saving other defaults later does not change it.
+    /// Nothing is written while the defaults are the built-in ones.
+    fn record_defaults(&mut self, now: u64) -> Result<(), String> {
+        let d = crate::policy_defaults::load(&self.base);
+        if d == crate::policy_defaults::Defaults::default() {
+            return Ok(());
+        }
+        self.studio()?
+            .journal
+            .append("policy.defaults", &json!(d), now)?;
+        Ok(())
     }
 
     /// A fresh start keeps the old project intact and copies only the sources selected in setup.
@@ -363,6 +745,23 @@ impl App {
         source_ids: &[String],
         now: u64,
     ) -> Result<(), String> {
+        self.create_project_from_allowing(from, name, brief, source_ids, now, false)
+    }
+
+    /// As `create_project_from`, with the same refusal of a key in the name or brief as `create_project_allowing`.
+    /// A brief copied from an older project was never scanned, so the fresh start scans it.
+    pub fn create_project_from_allowing(
+        &mut self,
+        from: &str,
+        name: &str,
+        brief: &str,
+        source_ids: &[String],
+        now: u64,
+        allow_key_shape: bool,
+    ) -> Result<(), String> {
+        if !allow_key_shape && key_shaped(name, brief) {
+            return Err(KEY_IN_BRIEF.into());
+        }
         if !crate::workspace::valid_name(from)
             || !crate::workspace::valid_name(name)
             || from.eq_ignore_ascii_case(name)
@@ -403,7 +802,8 @@ impl App {
                     fresh_roles.set(id, roles.of(sources.get(id).ok_or("source disappeared")?))?;
                 }
             }
-            self.attach(Studio::open(project)?, name)
+            self.attach(Studio::open(project)?, name)?;
+            self.record_defaults(now)
         })();
         if let Err(why) = result {
             // This unpublished project has never been opened or run. Never clean up the original.
@@ -430,8 +830,22 @@ impl App {
         if !crate::workspace::valid_name(name) {
             return Err(format!("{name:?} is not a valid project name"));
         }
+        if self.running.load(Ordering::SeqCst) > 0 {
+            // Opening the project that is already open does nothing, so a step still running is not marked failed.
+            return if self.name.as_deref() == Some(name) {
+                Ok(())
+            } else {
+                Err(FINISHING.into())
+            };
+        }
         let project = Project::open(&self.base.join(name))?;
         self.attach(Studio::open(project)?, name)
+    }
+
+    /// Writes down that the person pressed Stop on a run of steps. It shows as "Stopped by you" and as an item in
+    /// the Decision inbox until a step starts again.
+    pub fn record_stop(&mut self, now: u64) -> Result<(), String> {
+        self.studio()?.record_stop(now)
     }
 
     /// Presentation mode for screen recordings: what the app shows has no email address, no home folder
@@ -440,9 +854,25 @@ impl App {
         self.presentation = on.then(|| home.to_string());
     }
 
+    /// The name presentation mode hides, the approver's (DESIGN_SPEC.md §14).
+    pub fn set_presentation_name(&mut self, name: &str) {
+        self.presentation_name = name.trim().to_string();
+    }
+
+    fn hide_name(&self, text: String) -> String {
+        if self.presentation_name.chars().count() < 3 {
+            return text;
+        }
+        text.replace(&self.presentation_name, "you")
+    }
+
     fn shown(&self, v: Value) -> Value {
         match &self.presentation {
-            Some(home) => crate::redact::scrub_value(&v, home),
+            Some(home) => {
+                let v = crate::redact::scrub_value(&v, home);
+                let text = self.hide_name(v.to_string());
+                serde_json::from_str(&text).unwrap_or(v)
+            }
             None => v,
         }
     }
@@ -525,11 +955,45 @@ impl App {
         Ok(json!({"from": from, "to": to}))
     }
 
+    /// What each second check that asks for a verdict said, by step, from its latest result. A step that was not asked
+    /// for a verdict is left out, so a project made before verdicts existed shows none, and a step with no result yet
+    /// is left out too. A result with no verdict line has `verdict: null`.
+    fn checks_view(s: &Studio) -> Result<Value, String> {
+        let mut out = serde_json::Map::new();
+        let Some(plan) = s.plan() else {
+            return Ok(Value::Object(out));
+        };
+        let artifacts = s.project.artifacts()?;
+        for st in plan
+            .stages
+            .iter()
+            .filter(|st| crate::verdict::asks_for_verdict(&st.guide))
+        {
+            let name = artifact_name(&st.id);
+            let Some(file) = artifacts
+                .iter()
+                .rev()
+                .find(|a| a["name"].as_str() == Some(&name))
+                .and_then(|a| a["file"].as_str())
+            else {
+                continue;
+            };
+            if let Ok(text) = std::fs::read_to_string(s.project.root.join("artifacts").join(file)) {
+                out.insert(
+                    st.id.clone(),
+                    serde_json::to_value(crate::verdict::parse(&text))
+                        .map_err(|e| e.to_string())?,
+                );
+            }
+        }
+        Ok(Value::Object(out))
+    }
+
     fn state_raw(&self, engine_label: &str) -> Result<Value, String> {
         let s = self.studio()?;
         let ledger = s.ledger()?;
         let plan = s.plan();
-        Ok(json!({
+        let mut view = json!({
             "open": true,
             "name": self.name,
             "brief": s.project.brief()?,
@@ -550,6 +1014,10 @@ impl App {
             "role_info": plan.map(Self::role_info_for).unwrap_or_default(),
             "problems": plan.map(validate_plan).unwrap_or_default(),
             "gate": gate_name(s.gate()),
+            // The version an approval would cover, read with the rest of this state, so the plan card can send back
+            // exactly what it showed (DESIGN_SPEC.md §14).
+            "approval_hash": plan.and_then(|_| s.approval_hash().ok()),
+            // What "Mark reviewed" covers: the results as they are in this state.
             "approved_by": s.approval_by(),
             "policy": s.policy_view()?,
             "code_review": {"items": crate::code_review::summary(&s.project.root)?, "head": crate::code_review::head(&s.project.root).ok()},
@@ -575,7 +1043,24 @@ impl App {
             "project_limit": self.project_limit_view()?,
             "look": crate::look::load(&s.project.root)?,
             "usage_rows": Self::usage_rows(s)?,
-        }))
+        });
+        // Added here because the literal above is at the limit of what `json!` can expand.
+        view["checks"] = Self::checks_view(s)?;
+        // Whether a run is going: the whole of a run of steps, or a step in flight. A page that was left and opened
+        // again knows nothing of the run it left, so it reads this.
+        view["run_active"] = json!(self.running.load(Ordering::SeqCst) > 0);
+        view["stopped"] = s
+            .stopped_run()?
+            .map_or(Value::Null, |after| json!({"after_stage": after}));
+        view["blocked"] = s
+            .blocked_stages()
+            .into_iter()
+            .map(|(st, why)| (st, json!(why)))
+            .collect::<serde_json::Map<String, Value>>()
+            .into();
+        // What "Mark reviewed" covers: the results as they are in this state.
+        view["result_review"] = Self::review_view(s)?;
+        Ok(view)
     }
 
     /// Asks the lead for a plan and stores it. The planning usage goes to the ledger even if the plan is refused.
@@ -684,7 +1169,199 @@ impl App {
             .decide_actions(ids, approve, by, now)
     }
 
+    /// Approves whatever is current, with no check of what the person read. Tests and fixtures use it; the app shell
+    /// must use `approve_seen`, which refuses a plan that changed after it was read.
     pub fn approve(&mut self, by: &str, now: u64) -> Result<(), String> {
+        self.studio_mut()?.approve(by, now)
+    }
+
+    fn review_view(s: &Studio) -> Result<Value, String> {
+        Ok(json!({
+            "version": crate::decision_inbox::results_version(s)?,
+            "finished": crate::decision_inbox::is_finished(s),
+            "reviewed": crate::decision_inbox::is_reviewed(s)?,
+        }))
+    }
+
+    /// Marks the open project's finished results reviewed, as the person saw them (`seen`, the `review.version` of the
+    /// state they read). A result recorded since, or unfinished work, is refused in words and nothing is recorded.
+    pub fn mark_reviewed(
+        &mut self,
+        project: &str,
+        seen: &str,
+        by: &str,
+        now: u64,
+    ) -> Result<(), String> {
+        self.require_open(project)?;
+        let s = self.studio()?;
+        if !crate::decision_inbox::is_finished(s) {
+            return Err("Nothing is finished yet, so there is nothing to review.".into());
+        }
+        let current = crate::decision_inbox::results_version(s)?;
+        if seen != current {
+            return Err(
+                "The results changed after you looked at them. Nothing was marked. Look again, then mark them reviewed."
+                    .into(),
+            );
+        }
+        s.journal.append(
+            "result.reviewed",
+            &json!({"version": current, "by": by}),
+            now,
+        )?;
+        Ok(())
+    }
+
+    /// Every decision names the project it is for (DESIGN_SPEC.md §14). It goes through only when that project is the
+    /// open one; the app never switches projects to make a decision fit.
+    pub fn require_open(&self, project: &str) -> Result<(), String> {
+        let open = self
+            .open_name()
+            .ok_or("No project is open, so nothing was decided.")?;
+        if open != project {
+            return Err(format!(
+                "This decision is for {project}, but {open} is open. Nothing was decided."
+            ));
+        }
+        Ok(())
+    }
+
+    /// The policy defaults new projects start with (DESIGN_SPEC.md §10 Policy).
+    pub fn policy_defaults(&self) -> crate::policy_defaults::Defaults {
+        crate::policy_defaults::load(&self.base)
+    }
+
+    /// Saves the defaults new projects start with. Projects already made keep their own policy, except the ones
+    /// named in `tighten`, which are tightened to the defaults and never loosened; that ends their approval. A named
+    /// project that does not exist, or whose steps are running, is refused before anything is saved. Returns the
+    /// projects whose policy changed.
+    pub fn set_policy_defaults(
+        &mut self,
+        d: crate::policy_defaults::Defaults,
+        tighten: &[String],
+        now: u64,
+    ) -> Result<Vec<String>, String> {
+        let all = self.every_project();
+        for name in tighten {
+            if !all.contains(name) {
+                return Err(format!(
+                    "There is no project named {name}. Nothing was saved."
+                ));
+            }
+            if self.running.load(Ordering::SeqCst) > 0
+                && self.open_name().as_deref() == Some(name.as_str())
+            {
+                return Err(format!(
+                    "{name} is running. Stop it before changing its policy. Nothing was saved."
+                ));
+            }
+        }
+        crate::policy_defaults::save(&self.base, &d)?;
+        let mut changed = vec![];
+        for name in tighten {
+            let did = if self.open_name().as_deref() == Some(name.as_str()) {
+                Self::tighten(self.studio_mut()?, &d, now)?
+            } else {
+                let mut s = Project::open(&self.base.join(name)).and_then(Studio::open)?;
+                Self::tighten(&mut s, &d, now)?
+            };
+            if did {
+                changed.push(name.clone());
+            }
+        }
+        Ok(changed)
+    }
+
+    fn tighten(
+        s: &mut Studio,
+        d: &crate::policy_defaults::Defaults,
+        now: u64,
+    ) -> Result<bool, String> {
+        if s.plan().is_none() {
+            return Ok(false);
+        }
+        let m = s.policy()?;
+        let next = crate::policy_defaults::apply(&m, d)?;
+        if next == m {
+            return Ok(false);
+        }
+        s.set_policy(next, now)?;
+        Ok(true)
+    }
+
+    /// The defaults, and every project that is not archived with how its policy compares with them, for the Policy
+    /// page. A project with no plan has no policy yet and is listed without one.
+    pub fn policy_overview(&self) -> Value {
+        let d = crate::policy_defaults::load(&self.base);
+        let mut rows = vec![];
+        let mut errors = vec![];
+        for name in self
+            .every_project()
+            .into_iter()
+            .filter(|n| !self.is_archived(n))
+        {
+            let read = Project::open(&self.base.join(&name))
+                .and_then(Studio::open)
+                .and_then(|s| {
+                    let Some(plan) = s.plan() else {
+                        return Ok(json!({"name": name, "plan": false}));
+                    };
+                    let g = crate::policy::guardrails(&s.policy()?);
+                    let fit = crate::policy_defaults::compare(&g, plan.privacy, &d);
+                    let approved = s.gate() == Gate::Allowed;
+                    Ok(json!({
+                        "name": name,
+                        "plan": true,
+                        "guardrails": g,
+                        "privacy": plan.privacy,
+                        "fit": fit,
+                        "approved": approved,
+                        "hash": if approved { s.approval_hash().ok().map(|h| short_hash(&h)) } else { None },
+                    }))
+                });
+            match read {
+                Ok(r) => rows.push(r),
+                Err(e) => errors.push(json!({"project": name, "error": e})),
+            }
+        }
+        self.shown(json!({"defaults": d, "projects": rows, "errors": errors}))
+    }
+
+    /// The version of the open plan an approval would cover now (DESIGN_SPEC.md §14). The plan card shows it, and
+    /// approving sends it back, so what is approved is what was read.
+    pub fn approval_preview(&self) -> Result<String, String> {
+        self.studio()?.approval_hash()
+    }
+
+    /// Approves the open plan only when it is the project the decision names and its scope is still the version the
+    /// person read. Either way round it is refused in words, and nothing is recorded.
+    pub fn approve_seen(
+        &mut self,
+        project: &str,
+        seen: &str,
+        by: &str,
+        now: u64,
+    ) -> Result<(), String> {
+        let open = self
+            .open_name()
+            .ok_or("No project is open. Nothing was approved.")?;
+        if open != project {
+            return Err(format!(
+                "This approval is for {project}, but {open} is open. Nothing was approved."
+            ));
+        }
+        let current = self.studio()?.approval_hash()?;
+        if seen != current {
+            let read = if seen.is_empty() {
+                "no version".to_string()
+            } else {
+                format!("version {}", short_hash(seen))
+            };
+            return Err(format!(
+                "The plan changed after you read it. You read {read}, and it is now version {}. Nothing was approved and nothing ran. Read it again before you approve.",
+                short_hash(&current)
+            ));
+        }
         self.studio_mut()?.approve(by, now)
     }
 
@@ -1166,7 +1843,7 @@ impl App {
             .map(|m| crate::policy::guardrails(&m).send_outside == crate::policy::Guard::Never)
             .unwrap_or(false);
         if never {
-            return Err("Your guardrails say never to send anything outside this Mac, so no post was sent. Change it on the review board to post".into());
+            return Err("What it may do says never to send anything outside this Mac, so no post was sent. Change it in the plan to post".into());
         }
         let mut o = self.outbox()?;
         Ok(o.send_due(now)
@@ -1181,6 +1858,58 @@ impl App {
     /// Whether the person has allowed projects that write running code ([`crate::running_code::allowed`]).
     pub fn set_code_allowed(&mut self, on: bool) {
         self.code_allowed = Some(on);
+    }
+
+    /// Where finished files are copied: the person's Documents folder.
+    pub fn set_documents_dir(&mut self, dir: PathBuf) {
+        self.documents = Some(dir);
+    }
+
+    /// Copies finished files into `SproutCrew/<project>` inside the Documents folder the app was given. See
+    /// [`crate::documents::copy_into`].
+    pub fn copy_to_documents(&self, files: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+        let base = self
+            .documents
+            .as_ref()
+            .ok_or("the app does not know where your Documents folder is")?;
+        self.copy_to_documents_in(base, files)
+    }
+
+    /// Copies `files` into `<base>/SproutCrew/<project>/` and returns where each went, in order. A file is never
+    /// replaced: a name taken by other bytes becomes `name 2.docx`, then `name 3.docx`.
+    pub fn copy_to_documents_in(
+        &self,
+        base: &Path,
+        files: &[PathBuf],
+    ) -> Result<Vec<PathBuf>, String> {
+        crate::documents::copy_into(base, self.name.as_deref().unwrap_or_default(), files)
+    }
+
+    /// The files of one finished set as the person finds them: the recorded copies in Documents when the set was
+    /// copied before, or the files where they were made and a job to copy them. The job is run by the caller after
+    /// it lets go of the app lock. Without a Documents folder the files are shown where they were made.
+    fn copy_job(
+        &self,
+        out: &Path,
+        made: Vec<Value>,
+    ) -> (
+        Vec<Value>,
+        Option<String>,
+        Option<crate::documents::CopyJob>,
+    ) {
+        let Some(base) = self.documents.clone().filter(|_| !made.is_empty()) else {
+            return (made, None, None);
+        };
+        let job = crate::documents::CopyJob {
+            base,
+            project: self.name.clone().unwrap_or_default(),
+            made: made.clone(),
+            marker: out.join("saved-to.json"),
+        };
+        match job.already() {
+            Some((files, folder)) => (files, folder, None),
+            None => (made, None, Some(job)),
+        }
     }
 
     /// Which routes can run here: a found `claude` or `codex`, and API routes with settings and a key.
@@ -1812,13 +2541,8 @@ impl App {
         Self::folder_result(kept, folder)
     }
 
-    /// The files a typed or pasted path names, read from disk but not yet checked, and the folder when the
-    /// path is one. Takes no app, so a caller can read away from it.
-    #[allow(clippy::type_complexity)]
-    pub fn read_source_path(
-        raw: &str,
-        home: &std::path::Path,
-    ) -> Result<(Vec<(String, Result<Vec<u8>, String>)>, Option<PathBuf>), String> {
+    /// The path a typed, pasted or dropped address means: quotes and `file://` taken off, `~/` made the home folder.
+    fn resolve_source_path(raw: &str, home: &std::path::Path) -> Result<PathBuf, String> {
         let t = raw.trim().trim_matches(|c| c == '\'' || c == '"').trim();
         let decoded;
         let t = match t.strip_prefix("file://") {
@@ -1831,10 +2555,35 @@ impl App {
         if t.is_empty() {
             return Err("type or paste the path of a file or a folder".into());
         }
-        let path = match t.strip_prefix("~/") {
+        Ok(match t.strip_prefix("~/") {
             Some(rest) => home.join(rest),
             None => PathBuf::from(t),
-        };
+        })
+    }
+
+    /// What the new project screen shows for each added path: its name, its size in bytes for a file, and whether
+    /// it is a folder. Reads only the metadata, never the contents. A path that is not there gets its name and no size.
+    pub fn path_info(raw: &str, home: &std::path::Path) -> Value {
+        let path = Self::resolve_source_path(raw, home).unwrap_or_else(|_| PathBuf::from(raw));
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| raw.to_string());
+        match std::fs::metadata(&path) {
+            Ok(m) if m.is_dir() => json!({ "name": name, "size": null, "is_dir": true }),
+            Ok(m) => json!({ "name": name, "size": m.len(), "is_dir": false }),
+            Err(_) => json!({ "name": name, "size": null, "is_dir": false }),
+        }
+    }
+
+    /// The files a typed or pasted path names, read from disk but not yet checked, and the folder when the
+    /// path is one. Takes no app, so a caller can read away from it.
+    #[allow(clippy::type_complexity)]
+    pub fn read_source_path(
+        raw: &str,
+        home: &std::path::Path,
+    ) -> Result<(Vec<(String, Result<Vec<u8>, String>)>, Option<PathBuf>), String> {
+        let path = Self::resolve_source_path(raw, home)?;
         let meta = std::fs::symlink_metadata(&path)
             .map_err(|_| format!("nothing at {}. Check the path", path.display()))?;
         let read = |p: &std::path::Path| -> (String, Result<Vec<u8>, String>) {
@@ -1969,6 +2718,104 @@ impl App {
             now,
         )?;
         serde_json::to_value(note).map_err(|e| e.to_string())
+    }
+
+    /// The questions the run is waiting on: those the check of what is missing listed, while the steps after it are
+    /// held for the person's answers. Nothing once they are answered or skipped.
+    pub fn fact_questions(&self) -> Result<Vec<crate::facts::Question>, String> {
+        let s = self.studio()?;
+        if !s
+            .blocked_stages()
+            .iter()
+            .any(|(_, why)| why == crate::facts::WAITING_REASON)
+        {
+            return Ok(vec![]);
+        }
+        let name = artifact_name(crate::facts::FACTS_STEP);
+        let artifacts = s.project.artifacts()?;
+        let Some(file) = artifacts
+            .iter()
+            .rev()
+            .find(|a| a["name"].as_str() == Some(&name))
+            .and_then(|a| a["file"].as_str())
+        else {
+            return Ok(vec![]);
+        };
+        let text = std::fs::read_to_string(s.project.root.join("artifacts").join(file))
+            .map_err(|e| e.to_string())?;
+        Ok(crate::facts::parse_questions(&text))
+    }
+
+    /// Keeps the person's answers, one `None` for each question they skipped, and lets the held steps start. The
+    /// answers become one note, saved on every step after the check except one that reaches the web, which sees only
+    /// the brief. The steps that write read it, and a second check is told it is the person's own decision. An answer
+    /// is a note, so it keeps the strict secret rule, and one that is refused stops all of them from being saved. The
+    /// plan and its approval do not change.
+    pub fn answer_facts(&mut self, answers: Vec<Option<String>>, now: u64) -> Result<(), String> {
+        let questions = self.fact_questions()?;
+        if questions.is_empty() {
+            return Err("There are no questions waiting for answers.".into());
+        }
+        if answers.len() != questions.len() {
+            return Err(
+                "The answers do not match the questions. Close this and open it again.".into(),
+            );
+        }
+        for answer in answers.iter().flatten().filter(|a| !a.trim().is_empty()) {
+            crate::notes::Notes::check(answer).map_err(|e| {
+                if e.contains("looks like a secret") {
+                    crate::facts::REFUSED.to_string()
+                } else {
+                    "An answer is too long to save. Please shorten it.".to_string()
+                }
+            })?;
+        }
+        let note = crate::facts::answers_note(&questions, &answers);
+        let steps: Vec<String> = {
+            let plan = self.studio()?.plan().ok_or("there is no plan")?;
+            plan.descendants(crate::facts::FACTS_STEP)
+                .into_iter()
+                .filter(|id| {
+                    plan.stages
+                        .iter()
+                        .any(|s| &s.id == id && !crate::workflows::uses_web(&s.owner_role))
+                })
+                .collect()
+        };
+        if let Some(text) = &note {
+            let kept = crate::notes::Notes::open(&self.studio()?.project.root)?
+                .list()
+                .len();
+            if kept + steps.len() > crate::notes::MAX_NOTES {
+                return Err(format!(
+                    "A project keeps at most {} notes, and these answers need {} more. Remove a note first.",
+                    crate::notes::MAX_NOTES,
+                    steps.len()
+                ));
+            }
+            // The whole note is checked once before any is saved, since each step gets the same text.
+            crate::notes::Notes::check(text).map_err(|e| {
+                if e.contains("looks like a secret") {
+                    crate::facts::REFUSED.to_string()
+                } else {
+                    "These answers are too long to save together. Please shorten them.".to_string()
+                }
+            })?;
+            for step in &steps {
+                self.add_note(step, text, now)?;
+            }
+        }
+        let held: Vec<String> = self
+            .studio()?
+            .blocked_stages()
+            .into_iter()
+            .filter(|(_, why)| why == crate::facts::WAITING_REASON)
+            .map(|(id, _)| id)
+            .collect();
+        for id in held {
+            self.studio_mut()?.unblock_stage(&id, now)?;
+        }
+        Ok(())
     }
 
     /// The notes kept for every project, in the app's data folder beside `projects`.
@@ -2198,6 +3045,24 @@ impl App {
         tools: &crate::clientfiles::Tools,
         now: u64,
     ) -> Result<Value, String> {
+        let (mut shown, job) =
+            self.export_client_files_pending(document_step, deck_step, subtitle, tools, now)?;
+        if let Some(job) = job {
+            job.run(&mut shown);
+        }
+        Ok(shown)
+    }
+
+    /// As [`App::export_client_files`], but the copy to Documents is left as a job for the caller to run once it has
+    /// let go of the app lock.
+    pub fn export_client_files_pending(
+        &mut self,
+        document_step: Option<&str>,
+        deck_step: Option<&str>,
+        subtitle: &str,
+        tools: &crate::clientfiles::Tools,
+        now: u64,
+    ) -> Result<(Value, Option<crate::documents::CopyJob>), String> {
         let root = self.project_root()?;
         let name = self.name.clone().unwrap_or_default();
         let artifacts = self.studio()?.project.artifacts()?;
@@ -2215,6 +3080,17 @@ impl App {
         if document.is_none() && deck.is_none() {
             return Err("choose a step for the document or for the deck".into());
         }
+        // The same wait as on the result: files with details missing are not handed over.
+        if finish_details(self.studio()?)?.open() {
+            return Err("Some details are still missing from the draft, so no files were made. Fill them in on the result first, or finish with what you have.".into());
+        }
+        // With no step chosen for the deck, it is made from the document.
+        let deck = deck.or_else(|| {
+            document
+                .as_deref()
+                .map(crate::package::deck_from_document)
+                .filter(|d| !d.trim().is_empty())
+        });
         let out = root.join("exports").join(format!("client-{now}"));
         let (made, notes) = crate::clientfiles::make(
             &self.file_tools(tools),
@@ -2224,11 +3100,19 @@ impl App {
             document.as_deref(),
             deck.as_deref(),
         )?;
-        Ok(json!({
-            "folder": out.display().to_string(),
-            "files": made.iter().map(|m| json!({"kind": m.kind, "path": m.path.display().to_string()})).collect::<Vec<_>>(),
-            "notes": notes,
-        }))
+        let made: Vec<Value> = made
+            .iter()
+            .map(|m| json!({"kind": m.kind, "path": m.path.display().to_string()}))
+            .collect();
+        let (files, folder, job) = self.copy_job(&out, made);
+        Ok((
+            json!({
+                "folder": folder.unwrap_or_else(|| out.display().to_string()),
+                "files": files,
+                "notes": notes,
+            }),
+            job,
+        ))
     }
 
     /// Writes the decision log under `exports/`: what the checkers said, what the person changed, and what
@@ -2322,10 +3206,28 @@ impl App {
         )
     }
 
+    /// The advanced export: the raw records behind the run report, as JSON in a Markdown file.
+    pub fn export_run_report_raw(&self, now: u64) -> Result<Value, String> {
+        let s = self.studio()?;
+        crate::run_report::export_raw(
+            s,
+            &s.project
+                .root
+                .join("exports")
+                .join(format!("run-report-raw-{now}")),
+            now,
+        )
+    }
+
     pub fn decision_inbox(&self) -> Value {
         let mut items = vec![];
         let mut errors = vec![];
-        for name in self.every_project() {
+        // An archived project is put away: nothing in it waits on the board.
+        for name in self
+            .every_project()
+            .into_iter()
+            .filter(|n| !self.is_archived(n))
+        {
             let result = Project::open(&self.base.join(&name))
                 .and_then(Studio::open)
                 .and_then(|s| crate::decision_inbox::collect(&name, &s));
@@ -2338,6 +3240,29 @@ impl App {
             (a.tier, &a.project, &a.stage, &a.id).cmp(&(b.tier, &b.project, &b.stage, &b.id))
         });
         self.shown(json!({"items": items, "errors": errors}))
+    }
+
+    /// What the person decided, across every project that is not archived, newest first and at most `limit` lines
+    /// (DESIGN_SPEC.md §10, the board's Decided). A project that cannot be read is named, as the inbox does.
+    pub fn decided(&self, limit: usize) -> Value {
+        let mut rows = vec![];
+        let mut errors = vec![];
+        for name in self
+            .every_project()
+            .into_iter()
+            .filter(|n| !self.is_archived(n))
+        {
+            let result = Project::open(&self.base.join(&name))
+                .and_then(Studio::open)
+                .and_then(|s| s.journal.events());
+            match result {
+                Ok(events) => rows.extend(crate::decided::rows(&name, &events)),
+                Err(e) => errors.push(json!({"project": name, "error": e})),
+            }
+        }
+        rows.sort_by(|a, b| b.at.cmp(&a.at).then_with(|| a.project.cmp(&b.project)));
+        rows.truncate(limit);
+        self.shown(json!({"items": rows, "errors": errors}))
     }
 
     /// A project's usage, one row for each request, with the role that owned each step in the plan.
@@ -2618,7 +3543,7 @@ impl App {
             .and_then(|a| a["file"].as_str().map(str::to_string))
             .ok_or("this step has no result yet")?;
         let text = self.read_artifact(&file)?;
-        if crate::secrets::has_secret(&crate::secrets::scan(&text)) {
+        if crate::secrets::has_secret(&crate::secrets::scan_export(&text)) {
             return Err("Not saved: the result contains what looks like a secret".into());
         }
         let t = folder.trim().trim_matches(['\'', '"']);
@@ -2694,7 +3619,7 @@ impl App {
     pub fn export_decision_log(&mut self, now: u64) -> Result<Value, String> {
         let s = self.studio()?;
         let text = crate::changelog::build(s, now)?;
-        if crate::secrets::has_secret(&crate::secrets::scan(&text)) {
+        if crate::secrets::has_secret(&crate::secrets::scan_export(&text)) {
             return Err("Decision log blocked: possible secret".into());
         }
         let dir = s.project.root.join("exports");
@@ -2710,7 +3635,7 @@ impl App {
         let artifacts = s.project.artifacts()?;
         let mut version = Sha256::new();
         // Export format revisions regenerate cached client files without changing source artifacts.
-        version.update(b"client-document-format-4-docx-rs-pptxgenjs-xlsx");
+        version.update(b"client-document-format-6-docx-rs-pptxgenjs-xlsx-deck-from-document");
         // Turning the Keynote deck on makes new files that include it.
         if s.plan().is_some_and(|p| p.keynote) {
             version.update(b"keynote");
@@ -2727,11 +3652,24 @@ impl App {
                 .rev()
                 .find(|a| a["name"].as_str() == Some(&step))?;
             version.update(a["sha256"].as_str()?);
-            self.read_artifact(a["file"].as_str()?).ok()
+            let file = a["file"].as_str()?;
+            let text = self.read_artifact(file).ok()?;
+            // Notes the person has saved change the text without changing the result, so the files are new too.
+            if self.read_artifact_raw(file).ok()? != text {
+                version.update(Sha256::digest(text.as_bytes()));
+            }
+            Some(text)
         };
         let plan = s.plan();
         let document = text(plan.and_then(|p| crate::package::final_step(p, &artifacts)));
-        let deck = text(plan.and_then(|p| crate::package::final_deck(p, &artifacts)));
+        // A plan with no deck of its own still gets one, made from the document.
+        let deck =
+            text(plan.and_then(|p| crate::package::final_deck(p, &artifacts))).or_else(|| {
+                document
+                    .as_deref()
+                    .map(crate::package::deck_from_document)
+                    .filter(|d| !d.trim().is_empty())
+            });
         Ok((document, deck, format!("{:x}", version.finalize())))
     }
 
@@ -2739,7 +3677,20 @@ impl App {
     /// version of the text, so asking again makes nothing new and running a step again makes a new set. A tool that
     /// is missing is a note, and asking again tries once more.
     pub fn final_files(&mut self, tools: &crate::clientfiles::Tools) -> Result<Value, String> {
-        let nothing = json!({"files": [], "notes": [], "open": ""});
+        let (mut shown, job) = self.final_files_pending(tools)?;
+        if let Some(job) = job {
+            job.run(&mut shown);
+        }
+        Ok(shown)
+    }
+
+    /// As [`App::final_files`], but the copy to Documents is left as a job for the caller to run once it has let go
+    /// of the app lock, because the first copy can wait on a macOS permission prompt.
+    pub fn final_files_pending(
+        &mut self,
+        tools: &crate::clientfiles::Tools,
+    ) -> Result<(Value, Option<crate::documents::CopyJob>), String> {
+        let nothing = json!({"files": [], "folder": null, "notes": [], "open": "", "gaps": [], "left_out": [], "accepted": false, "note_steps": [], "rerun": []});
         let name = self.name.clone().unwrap_or_default();
         let s = self.studio()?;
         let artifacts = s.project.artifacts()?;
@@ -2751,11 +3702,22 @@ impl App {
             .plan()
             .is_some_and(|p| p.stages.iter().all(|st| done(&st.id)))
         {
-            return Ok(nothing);
+            return Ok((nothing, None));
         }
         let (document, deck, version) = self.finished_work()?;
         if document.is_none() && deck.is_none() {
-            return Ok(nothing);
+            return Ok((nothing, None));
+        }
+        // Files are offered once nothing is missing, or the person chose to finish around what is. The details
+        // are listed either way, so the screen can ask for them or say what the files were written around.
+        let details = finish_details(self.studio()?)?;
+        let missing = json!({"gaps": details.gaps, "left_out": details.left_out, "accepted": details.accepted, "note_steps": details.note_steps, "rerun": details.rerun});
+        if details.open() {
+            let mut held = nothing;
+            held.as_object_mut()
+                .expect("an object")
+                .extend(missing.as_object().expect("an object").clone());
+            return Ok((held, None));
         }
         // Installing the optional PDF helper must retry the partial cached set without overwriting it.
         let version = format!(
@@ -2795,7 +3757,14 @@ impl App {
             .map(|t| crate::clientfiles::still_open(t))
             .filter(|t| !t.is_empty())
             .collect();
-        Ok(json!({"files": made_files(&out), "notes": notes, "open": open.join("\n\n")}))
+        let (files, folder, job) = self.copy_job(&out, made_files(&out));
+        let mut shown =
+            json!({"files": files, "folder": folder, "notes": notes, "open": open.join("\n\n")});
+        shown
+            .as_object_mut()
+            .expect("an object")
+            .extend(missing.as_object().expect("an object").clone());
+        Ok((shown, job))
     }
 
     /// Writes the portable package under `exports/` in the project. Refuses on a secret, names any stage that
@@ -3094,15 +4063,19 @@ impl App {
         }))
     }
 
-    /// Raises the project's dollar limit. Raising it is the person's approval to spend more on this project.
-    pub fn raise_project_limit(&mut self, dollars: f64) -> Result<Value, String> {
-        if !dollars.is_finite() || dollars <= 0.0 || dollars > 10_000.0 {
-            return Err("Type a limit in dollars, such as 10".into());
+    /// Sets the project's dollar limit, up or down. Raising it is the person's approval to spend more; it cannot go
+    /// below what is already spent or held.
+    pub fn set_project_limit(&mut self, dollars: f64) -> Result<Value, String> {
+        if !dollars.is_finite() || dollars <= 0.0 {
+            return Err("Enter an amount in dollars, like 0.50.".into());
+        }
+        if dollars > 10_000.0 {
+            return Err("Type a limit of $10,000 or less.".into());
         }
         let book = crate::spend::project_book(&self.studio()?.project.root);
         book.lock()
             .expect("project book")
-            .raise_cap((dollars * 1_000_000.0).round() as u64)?;
+            .set_cap((dollars * 1_000_000.0).round() as u64)?;
         self.project_limit_view()
     }
 
@@ -3137,7 +4110,17 @@ impl App {
         Ok(cited_urls(&text, max))
     }
 
+    /// A result's text as the screen, the files and the report read it: for the final document or deck, each marker the
+    /// person answered is replaced by the answer and, after "Finish with what I have", each marker left is taken out.
+    /// Any other result is as it was written. The result on disk is never changed.
     pub fn read_artifact(&self, file: &str) -> Result<String, String> {
+        let raw = self.read_artifact_raw(file)?;
+        let s = self.studio()?;
+        Ok(self.resolve_final(s, file, &raw).unwrap_or(raw))
+    }
+
+    /// The text of a result file as it was written, with the home folder hidden in presentation mode.
+    pub fn read_artifact_raw(&self, file: &str) -> Result<String, String> {
         let s = self.studio()?;
         if file.is_empty() || file.starts_with('.') || file.contains('/') || file.contains('\\') {
             return Err(format!("{file:?} is not an artifact file name"));
@@ -3148,9 +4131,30 @@ impl App {
         }
         let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         Ok(match &self.presentation {
-            Some(home) => crate::redact::scrub_str(&text, home),
+            Some(home) => self.hide_name(crate::redact::scrub_str(&text, home)),
             None => text,
         })
+    }
+
+    /// `raw` as the final text, when `file` is the newest result of the step that makes the final document or deck and
+    /// something in the person's notes changes it. A text that cannot be worked out is shown as it was written.
+    fn resolve_final(&self, s: &Studio, file: &str, raw: &str) -> Option<String> {
+        let artifacts = s.project.artifacts().ok()?;
+        let step = artifacts
+            .iter()
+            .rev()
+            .find(|a| a["file"].as_str() == Some(file))?["name"]
+            .as_str()?;
+        let newest = artifacts
+            .iter()
+            .rev()
+            .find(|a| a["name"].as_str() == Some(step))?["file"]
+            .as_str()?;
+        if newest != file {
+            return None;
+        }
+        let text = finish_details(s).ok()?.resolve(step, raw);
+        (text != raw).then_some(text)
     }
 
     pub fn check_assignment(route_id: &str, model: &str, effort: &str) -> Result<(), String> {
@@ -3231,6 +4235,23 @@ mod tests {
     }
 
     #[test]
+    fn the_project_dollar_limit_can_be_lowered_raised_and_is_refused_in_words_when_invalid() {
+        let mut a = app("project-limit");
+        a.create_project("limit-test", "Write a note.", 1).unwrap();
+        let v = a.set_project_limit(0.5).unwrap();
+        assert_eq!(v["cap"], 0.5);
+        let v = a.set_project_limit(8.0).unwrap();
+        assert_eq!(v["cap"], 8.0);
+        for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(
+                a.set_project_limit(bad).unwrap_err(),
+                "Enter an amount in dollars, like 0.50."
+            );
+        }
+        assert_eq!(a.project_limit_view().unwrap()["cap"], 8.0);
+    }
+
+    #[test]
     fn memory_for_every_project_is_kept_beside_the_projects_and_can_be_changed_and_removed() {
         let data = std::env::temp_dir().join(format!("bff-app-{}-memory", std::process::id()));
         let _ = std::fs::remove_dir_all(&data);
@@ -3252,6 +4273,60 @@ mod tests {
             .is_err());
         a.memory_remove(&id).unwrap();
         assert_eq!(a.memory_list().unwrap(), json!([]));
+    }
+
+    #[test]
+    fn the_screen_is_told_what_each_second_check_said_only_for_checks_that_asked_for_a_verdict() {
+        let mut a = app("checks-view");
+        a.create_project("verdict-view", "Write a note.", 1)
+            .unwrap();
+        let mut plan = crate::workflows::plan_for(
+            crate::workflows::Workflow::Writing,
+            "Write a note.",
+            ("R1", "gpt-6.1-terra", "medium"),
+            ("R2", "claude-sonnet-5-5", "medium"),
+        )
+        .unwrap();
+        plan.stages
+            .retain(|st| ["draft", "review", "finish"].contains(&st.id.as_str()));
+        plan.team
+            .retain(|t| t.role == "writer" || t.role == "reviewer");
+        plan.fallbacks.clear();
+        a.save_plan(serde_json::to_value(&plan).unwrap(), 2)
+            .unwrap();
+        a.approve("Fixture owner", 3).unwrap();
+        assert_eq!(a.state("replay").unwrap()["checks"], json!({}));
+        let (mut e, _) = crate::testkit::Script::new("The bakery opens soon.", None);
+        a.run_stage(&mut e, "draft", 4).unwrap();
+        assert_eq!(
+            a.state("replay").unwrap()["checks"],
+            json!({}),
+            "not run yet"
+        );
+        let (mut e, _) = crate::testkit::Script::new(
+            "- \"opens soon\" has no date. Say when.\n- The price is invented.\nVerdict: Do not send",
+            None,
+        );
+        a.run_stage(&mut e, "review", 5).unwrap();
+        let s = a.state("replay").unwrap();
+        assert_eq!(
+            s["checks"],
+            json!({"review": {"verdict": "do_not_send", "flagged": ["\"opens soon\" has no date. Say when.", "The price is invented."]}})
+        );
+        assert_eq!(
+            s["blocked"],
+            json!({"finish": "The second check said do not send"})
+        );
+        // Run the check again with an answer that has no verdict line.
+        let (mut e, _) =
+            crate::testkit::Script::new("# A rewritten note\n\nIt opens next month.", None);
+        a.run_stage(&mut e, "review", 6).unwrap();
+        let s = a.state("replay").unwrap();
+        assert_eq!(
+            s["checks"]["review"],
+            json!({"verdict": null, "flagged": []})
+        );
+        assert_eq!(s["blocked"], json!({}));
     }
 
     #[test]
@@ -3487,6 +4562,231 @@ mod tests {
         assert!(!a.base.join("fresh").exists());
         assert_eq!(std::fs::read(&outside).unwrap(), b"Evidence.");
         assert_eq!(a.state("replay").unwrap()["name"], "original");
+    }
+
+    #[test]
+    fn the_decided_list_reads_every_open_project_newest_first_and_leaves_out_the_archived() {
+        let mut a = app("decided");
+        let mut e = ReplayEngine;
+        for (name, t) in [("first", 10), ("second", 20), ("put-away", 30)] {
+            a.create_project(name, "Write a market note.", t).unwrap();
+            a.propose(&mut e, t + 1).unwrap();
+            let h = a.approval_preview().unwrap();
+            a.approve_seen(name, &h, "Ana Ruiz", t + 2).unwrap();
+        }
+        a.archive_project("put-away", 40).unwrap();
+        let v = a.decided(10);
+        let items = v["items"].as_array().unwrap();
+        let seen: Vec<(&str, &str)> = items
+            .iter()
+            .map(|i| (i["project"].as_str().unwrap(), i["what"].as_str().unwrap()))
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                ("second", "Approved the plan"),
+                ("first", "Approved the plan")
+            ]
+        );
+        assert_eq!(items[0]["by"], "Ana Ruiz");
+        assert_eq!(a.decided(1)["items"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn finished_work_waits_on_the_board_until_its_results_are_reviewed_as_they_were_seen() {
+        let mut a = app("reviewed");
+        let mut e = ReplayEngine;
+        let finished = |a: &App| {
+            a.decision_inbox()["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|i| i["project"] == "case" && i["kind"] == "finished")
+        };
+        let reviewed = |a: &App| a.projects_overview()[0]["reviewed"].clone();
+        a.create_project("case", "Write a market note.", 1).unwrap();
+        a.propose(&mut e, 2).unwrap();
+        a.approve("Ana", 3).unwrap();
+        // Unfinished work is not offered for review.
+        let early = a.state("replay").unwrap()["result_review"]["version"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            a.mark_reviewed("case", &early, "Ana", 4).unwrap_err(),
+            "Nothing is finished yet, so there is nothing to review."
+        );
+        assert!(!finished(&a));
+        while let Some(id) = a.ready_stages().unwrap().first().cloned() {
+            a.run_stage(&mut e, &id, 5).unwrap();
+        }
+        assert!(finished(&a));
+        assert_eq!(reviewed(&a), json!(false));
+        let seen = a.state("replay").unwrap()["result_review"]["version"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        // Another project's name, or a version that is not the current one, is refused and changes nothing.
+        assert!(a.mark_reviewed("other", &seen, "Ana", 6).is_err());
+        let err = a.mark_reviewed("case", "stale", "Ana", 6).unwrap_err();
+        assert!(err.contains("changed after you looked"), "{err}");
+        assert!(finished(&a));
+        // Marked as it was seen: it leaves the board and the project list says so.
+        a.mark_reviewed("case", &seen, "Ana", 7).unwrap();
+        assert!(!finished(&a));
+        assert_eq!(reviewed(&a), json!(true));
+        assert_eq!(
+            a.state("replay").unwrap()["result_review"]["reviewed"],
+            json!(true)
+        );
+        // A new result after the review needs reviewing again.
+        let root = a.project_root().unwrap();
+        let mut list = a.studio().unwrap().project.artifacts().unwrap();
+        let mut again = list[0].clone();
+        again["sha256"] = json!("0".repeat(64));
+        list.push(again);
+        std::fs::write(
+            root.join("artifacts.json"),
+            serde_json::to_vec(&list).unwrap(),
+        )
+        .unwrap();
+        assert!(finished(&a));
+        assert_eq!(reviewed(&a), json!(false));
+        let events = a.studio().unwrap().journal.events().unwrap();
+        let mark = events.iter().find(|e| e.kind == "result.reviewed").unwrap();
+        assert_eq!(
+            (
+                mark.payload["by"].as_str(),
+                mark.payload["version"].as_str()
+            ),
+            (Some("Ana"), Some(seen.as_str()))
+        );
+    }
+
+    #[test]
+    fn the_inbox_and_the_project_list_agree_and_leave_out_what_needs_nothing() {
+        let mut a = app("inbox-agree");
+        let mut e = ReplayEngine;
+        let kinds = |a: &App, project: &str| -> Vec<String> {
+            a.decision_inbox()["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|i| i["project"] == project)
+                .map(|i| i["kind"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let approved = |a: &App, project: &str| {
+            a.projects_overview()
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["name"] == project)
+                .unwrap()["approved"]
+                .clone()
+        };
+
+        // A plan that changed after its approval needs approving again, and both places say so.
+        a.create_project("draft", "Write a market note.", 1)
+            .unwrap();
+        a.propose(&mut e, 2).unwrap();
+        a.approve("Ana", 3).unwrap();
+        assert_eq!(approved(&a, "draft"), json!(true));
+        assert!(!kinds(&a, "draft").contains(&"plan".to_string()));
+        a.add_source_bytes("late.txt", b"Added after the approval.")
+            .unwrap();
+        assert_eq!(approved(&a, "draft"), json!(false));
+        assert!(kinds(&a, "draft").contains(&"plan".to_string()));
+
+        // A finished project has nothing left to run, so a change in its scope does not list it for approval.
+        a.create_project("done", "Write a market note.", 4).unwrap();
+        a.propose(&mut e, 5).unwrap();
+        a.approve("Ana", 6).unwrap();
+        while let Some(id) = a.ready_stages().unwrap().first().cloned() {
+            a.run_stage(&mut e, &id, 7).unwrap();
+        }
+        a.add_source_bytes("late.txt", b"Added after it finished.")
+            .unwrap();
+        assert!(
+            !kinds(&a, "done").contains(&"plan".to_string()),
+            "{:?}",
+            kinds(&a, "done")
+        );
+
+        // An archived project is not on the board, whatever it holds.
+        assert!(!kinds(&a, "draft").is_empty());
+        a.archive_project("draft", 8).unwrap();
+        assert!(kinds(&a, "draft").is_empty());
+    }
+
+    #[test]
+    fn a_decision_names_its_project_and_is_refused_for_any_other() {
+        let mut a = app("require-open");
+        assert_eq!(
+            a.require_open("case").unwrap_err(),
+            "No project is open, so nothing was decided."
+        );
+        a.create_project("case", "Write a market note.", 1).unwrap();
+        assert!(a.require_open("case").is_ok());
+        assert_eq!(
+            a.require_open("other").unwrap_err(),
+            "This decision is for other, but case is open. Nothing was decided."
+        );
+        assert!(a.require_open("").is_err());
+    }
+
+    #[test]
+    fn a_plan_is_approved_only_as_it_was_read_and_only_for_the_project_it_names() {
+        let mut a = app("approve-seen");
+        let mut e = ReplayEngine;
+        a.create_project("case", "Write a market note.", 1).unwrap();
+        a.propose(&mut e, 2).unwrap();
+        let read = a.approval_preview().unwrap();
+        assert_eq!(read.len(), 64);
+        let approvals = |a: &App| {
+            a.studio()
+                .unwrap()
+                .journal
+                .events()
+                .unwrap()
+                .iter()
+                .filter(|e| e.kind == "plan.approved")
+                .count()
+        };
+
+        // A decision for another project is refused, and nothing is recorded.
+        let err = a.approve_seen("other", &read, "you", 3).unwrap_err();
+        assert!(err.contains("other") && err.contains("case"), "{err}");
+        assert_eq!(approvals(&a), 0);
+
+        // Something in scope changes after the plan was read: the approval is refused and names both versions.
+        a.add_source_bytes("late.txt", b"Added after the plan was read.")
+            .unwrap();
+        let now = a.approval_preview().unwrap();
+        assert_ne!(now, read);
+        let err = a.approve_seen("case", &read, "you", 4).unwrap_err();
+        assert!(
+            err.contains(&short_hash(&read)) && err.contains(&short_hash(&now)),
+            "{err}"
+        );
+        assert!(err.contains("Nothing was approved"), "{err}");
+        assert_eq!(approvals(&a), 0);
+        assert_eq!(a.studio().unwrap().gate(), Gate::NotApproved);
+
+        // A version that is not a hash at all is refused the same way.
+        assert!(a.approve_seen("case", "", "you", 5).is_err());
+        assert_eq!(approvals(&a), 0);
+
+        // The version the person read now is the current one: it is approved, and the journal keeps that hash.
+        a.approve_seen("case", &now, "you", 6).unwrap();
+        assert_eq!(a.studio().unwrap().gate(), Gate::Allowed);
+        let events = a.studio().unwrap().journal.events().unwrap();
+        let approved = events
+            .iter()
+            .rev()
+            .find(|e| e.kind == "plan.approved")
+            .unwrap();
+        assert_eq!(approved.payload["hash"], now);
     }
 
     #[test]
@@ -4084,7 +5384,8 @@ mod tests {
         let mut a = app("present");
         let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/test".into());
         let brief = format!("Write to pat.lee@example.com about {home}/Documents/plan.md using key sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789");
-        a.create_project("case", &brief, 1).unwrap();
+        // The key is allowed through here on purpose: the mode must hide one that is already stored.
+        a.create_project_allowing("case", &brief, 1, true).unwrap();
         let raw = a.state("replay").unwrap().to_string();
         assert!(raw.contains("pat.lee@example.com"), "off by default");
         a.set_presentation(true, &home);
@@ -4110,6 +5411,31 @@ mod tests {
             .unwrap()
             .to_string()
             .contains("pat.lee@example.com"));
+    }
+
+    #[test]
+    fn presentation_mode_hides_the_name_of_whoever_approved() {
+        let mut a = app("present-name");
+        let mut e = ReplayEngine;
+        a.create_project("case", "Write a market note.", 1).unwrap();
+        a.propose(&mut e, 2).unwrap();
+        let hash = a.approval_preview().unwrap();
+        a.approve_seen("case", &hash, "Ana Ruiz", 3).unwrap();
+        assert!(a.state("replay").unwrap().to_string().contains("Ana Ruiz"));
+        a.set_presentation_name("Ana Ruiz");
+        a.set_presentation(true, "/Users/ana");
+        let shown = a.state("replay").unwrap().to_string();
+        assert!(
+            !shown.contains("Ana Ruiz") && shown.contains("you"),
+            "{shown}"
+        );
+        // The journal keeps the real name, and the mode off shows it again.
+        a.set_presentation(false, "/Users/ana");
+        assert!(a.state("replay").unwrap().to_string().contains("Ana Ruiz"));
+        // A name too short to stand out is not hunted through every word: "an" stays in "plan".
+        a.set_presentation_name("an");
+        a.set_presentation(true, "/Users/ana");
+        assert!(a.state("replay").unwrap().to_string().contains("\"plan\""));
     }
 
     #[test]
@@ -4438,6 +5764,138 @@ mod tests {
         assert!(e.contains("archived"), "{e}");
     }
 
+    fn made_up_key() -> String {
+        format!("sk-or-v1-{}", "0123456789abcdef".repeat(4))
+    }
+
+    #[test]
+    fn a_key_in_the_brief_is_refused_without_repeating_it_and_creates_nothing() {
+        let mut a = app("key-brief");
+        let key = made_up_key();
+        let e = a
+            .create_project("bakery", &format!("Write about our bakery. {key}"), 1)
+            .unwrap_err();
+        assert!(e.starts_with("key-in-brief:"), "{e}");
+        assert!(e.contains("Keys go in the Connect box"), "{e}");
+        assert!(!e.contains(&key[..12]), "{e}");
+        assert!(!a.base.join("bakery").exists());
+        assert!(a.projects().is_empty());
+    }
+
+    #[test]
+    fn a_key_shaped_name_is_refused_too() {
+        let mut a = app("key-name");
+        let key = made_up_key();
+        let e = a.create_project(&key[..48], "A brief", 1).unwrap_err();
+        assert!(e.starts_with("key-in-brief:"), "{e}");
+        assert!(a.projects().is_empty());
+    }
+
+    #[test]
+    fn a_fresh_start_refuses_a_key_in_the_edited_brief_and_leaves_the_original_alone() {
+        let mut a = app("key-restart");
+        a.create_project("original", "A clean brief", 1).unwrap();
+        let key = made_up_key();
+        let e = a
+            .create_project_from("original", "fresh", &format!("Use {key} now"), &[], 2)
+            .unwrap_err();
+        assert!(e.starts_with("key-in-brief:"), "{e}");
+        assert!(!e.contains(&key[..12]), "{e}");
+        assert!(!a.base.join("fresh").exists());
+        assert_eq!(a.projects(), vec!["original".to_string()]);
+        let e = a
+            .create_project_from("original", &key[..48], "Fine", &[], 2)
+            .unwrap_err();
+        assert!(e.starts_with("key-in-brief:"), "{e}");
+        // "It isn't a key" lets the same text through.
+        a.create_project_from_allowing(
+            "original",
+            "fresh",
+            &format!("Use {key} now"),
+            &[],
+            3,
+            true,
+        )
+        .unwrap();
+        assert_eq!(a.state("fresh").unwrap()["brief"], format!("Use {key} now"));
+    }
+
+    /// The same lines are checked by `tests/keyshape.test.ts`, so the page and the backend agree on what a key is.
+    #[test]
+    fn the_shared_key_shape_lines_are_flagged_exactly_where_the_page_finds_a_key() {
+        // OpenRouter-shaped test keys are written as {OPENROUTER_KEY_64} and made here, so no key-shaped string is
+        // stored in the repository for a secret scanner to stop.
+        let fake = |n: usize| format!("sk-or-v1-{}", "0123456789abcdef".repeat(n / 16));
+        let raw = include_str!("../tests/fixtures/key_shapes.json")
+            .replace("{OPENROUTER_KEY_64}", &fake(64))
+            .replace("{OPENROUTER_KEY_48}", &fake(48));
+        let lines: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap();
+        assert!(lines.len() > 10);
+        for l in lines {
+            let text = l["text"].as_str().unwrap();
+            // A line marked "as": "name" is a project name, which is only refused for a named key shape.
+            let flagged = if l["as"] == "name" {
+                name_key_shaped(text)
+            } else {
+                crate::secrets::has_secret(&crate::secrets::scan_prose(text))
+            };
+            assert_eq!(flagged, !l["found"].is_null(), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_long_suggested_name_with_a_digit_is_not_refused_as_a_key() {
+        let mut a = app("key-long-name");
+        for (i, name) in [
+            "700-word-newsletter-product-leaders",
+            "bakery-newsletter-november-2026-v2",
+        ]
+        .iter()
+        .enumerate()
+        {
+            a.create_project(name, "A clean brief", 1 + i as u64)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+        }
+        // The same text in the brief is still refused.
+        let e = a
+            .create_project("other", "700-word-newsletter-product-leaders", 9)
+            .unwrap_err();
+        assert!(e.starts_with("key-in-brief:"), "{e}");
+    }
+
+    #[test]
+    fn it_isnt_a_key_lets_the_same_brief_through() {
+        let mut a = app("key-allowed");
+        let brief = format!("Explain the format {}", made_up_key());
+        a.create_project_allowing("format-note", &brief, 1, true)
+            .unwrap();
+        assert_eq!(a.state("format-note").unwrap()["brief"], brief);
+    }
+
+    #[test]
+    fn ordinary_prose_that_mentions_a_secret_is_not_a_key() {
+        let mut a = app("key-prose");
+        a.create_project(
+            "harbor-lane",
+            "Our secret: slow-fermented dough. A token of thanks: every tenth loaf.",
+            1,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_new_project_with_a_taken_name_says_so_plainly_and_leaves_the_first_alone() {
+        let mut a = app("taken-name");
+        a.create_project("harbor-lane", "first", 1).unwrap();
+        let e = a.create_project("harbor-lane", "second", 2).unwrap_err();
+        assert_eq!(e, "A project called \"harbor-lane\" already exists.");
+        // A Mac folder ignores case, so a differently cased name is the same project.
+        let e = a.create_project("Harbor-Lane", "third", 3).unwrap_err();
+        assert!(e.contains("already exists"), "{e}");
+        assert!(!e.contains("os error"), "{e}");
+        assert_eq!(a.state("taken-name").unwrap()["brief"], "first");
+    }
+
     #[test]
     fn the_state_lists_tokens_per_model_and_nothing_before_a_step_has_run() {
         let mut a = app("by-model");
@@ -4469,7 +5927,7 @@ mod tests {
                 "UX reviewer",
                 "Tester",
                 "Technical writer",
-                "Final reviewer"
+                "Second check"
             ]
         );
         assert_eq!(app_dev["steps"].as_array().unwrap().len(), 9);
@@ -5014,6 +6472,60 @@ mod tests {
     }
 
     #[test]
+    fn a_long_hyphenated_word_in_the_brief_does_not_stop_the_decision_log_but_a_key_still_does() {
+        // The brief is in the log. A long hyphenated word is allowed in a brief by "It isn't a key".
+        let mut a = app("decision-log-slug");
+        a.create_project_allowing(
+            "600-word-article-website-harbor-2",
+            "Write the article for the site, project 600-word-article-website-harbor-2, from the launch notes.",
+            1,
+            true,
+        )
+        .unwrap();
+        let r = a.export_decision_log(5);
+        assert!(r.is_ok(), "{r:?}");
+        assert!(r.unwrap()["text"]
+            .as_str()
+            .unwrap()
+            .contains("600-word-article-website-harbor-2"));
+        let mut b = app("decision-log-key");
+        b.create_project_allowing(
+            "case",
+            &format!("Use sk-ant-api03-{} for the site.", "abcdefghij".repeat(4)),
+            1,
+            true,
+        )
+        .unwrap();
+        let e = b.export_decision_log(5).unwrap_err();
+        assert!(e.contains("possible secret"), "{e}");
+    }
+
+    #[test]
+    fn path_info_gives_a_name_and_size_for_a_file_and_a_folder_without_reading_them() {
+        let d = scratch("pathinfo");
+        std::fs::write(d.join("prices.csv"), vec![b'x'; 12 * 1024]).unwrap();
+        std::fs::create_dir(d.join("notes")).unwrap();
+        let home = d.clone();
+        let file = App::path_info(&d.join("prices.csv").display().to_string(), &home);
+        assert_eq!(
+            file,
+            json!({ "name": "prices.csv", "size": 12288, "is_dir": false })
+        );
+        let folder = App::path_info("~/notes", &home);
+        assert_eq!(
+            folder,
+            json!({ "name": "notes", "size": null, "is_dir": true })
+        );
+        let quoted = App::path_info(&format!("'{}'", d.join("prices.csv").display()), &home);
+        assert_eq!(quoted["size"], 12288);
+        let gone = App::path_info("~/missing.pdf", &home);
+        assert_eq!(
+            gone,
+            json!({ "name": "missing.pdf", "size": null, "is_dir": false })
+        );
+    }
+
+    #[test]
     fn a_folder_with_a_picture_and_a_scan_is_read_away_from_the_app_and_then_kept() {
         let mut a = app("pictures");
         a.create_project("case", "x", 1).unwrap();
@@ -5071,9 +6583,148 @@ mod tests {
         )
         .unwrap();
         a.approve("N", 3).unwrap();
-        a.run_stage(&mut e, "read", 4).unwrap();
+        a.run_stage(&mut e, "facts", 4).unwrap();
+        a.run_stage(&mut e, "read", 5).unwrap();
         let err = a.remove_source("src-1").unwrap_err();
         assert!(err.contains("already been used"), "{err}");
+    }
+
+    /// A project on the Writing plan cut to a facts check, an outline and a draft, approved, with the facts check run
+    /// and two questions asked.
+    fn asked_two_questions(tag: &str) -> App {
+        let mut a = app(tag);
+        a.create_project("facts", "Write a note about the dough class.", 1)
+            .unwrap();
+        let mut plan = crate::workflows::plan_for(
+            crate::workflows::Workflow::Writing,
+            "Write a note about the dough class.",
+            ("R1", "gpt-6.1-terra", "medium"),
+            ("R2", "claude-sonnet-5-5", "medium"),
+        )
+        .unwrap();
+        plan.stages
+            .retain(|st| ["facts", "outline", "draft"].contains(&st.id.as_str()));
+        plan.team.retain(|t| t.role == "writer");
+        plan.fallbacks.clear();
+        a.save_plan(serde_json::to_value(&plan).unwrap(), 2)
+            .unwrap();
+        a.approve("Fixture owner", 3).unwrap();
+        assert_eq!(a.fact_questions().unwrap(), vec![], "nothing asked yet");
+        let (mut e, _) = crate::testkit::Script::new(
+            "Q: What does the class cost? | From: pricing-notes.txt | Suggested: $45 a person\nQ: When is the next class? | From: nothing | Suggested: nothing",
+            None,
+        );
+        a.run_stage(&mut e, "facts", 4).unwrap();
+        a
+    }
+
+    #[test]
+    fn the_questions_are_offered_while_the_run_waits_and_the_answers_become_notes_that_let_it_go_on(
+    ) {
+        let mut a = asked_two_questions("facts-answer");
+        let q = a.fact_questions().unwrap();
+        assert_eq!(q.len(), 2);
+        assert_eq!(q[0].from.as_deref(), Some("pricing-notes.txt"));
+        assert_eq!(q[0].suggested.as_deref(), Some("$45 a person"));
+        assert_eq!(
+            a.state("replay").unwrap()["blocked"],
+            json!({"outline": "Waiting for your answers"})
+        );
+        assert_eq!(a.ready_stages().unwrap(), Vec::<String>::new());
+        a.answer_facts(
+            vec![Some("$48 a person".into()), Some(" 14 January ".into())],
+            5,
+        )
+        .unwrap();
+        assert_eq!(a.state("replay").unwrap()["blocked"], json!({}));
+        assert_eq!(a.fact_questions().unwrap(), vec![], "answered");
+        assert_eq!(a.ready_stages().unwrap(), ["outline"]);
+        let notes = a.state("replay").unwrap()["notes"].clone();
+        let notes = notes.as_array().unwrap();
+        assert_eq!(
+            notes.len(),
+            2,
+            "one note for each step after the check: {notes:?}"
+        );
+        let mut stages: Vec<&str> = notes.iter().map(|n| n["stage"].as_str().unwrap()).collect();
+        stages.sort();
+        assert_eq!(stages, ["draft", "outline"]);
+        for n in notes {
+            let text = n["text"].as_str().unwrap();
+            assert!(
+                text.contains("Question: What does the class cost? Answer: $48 a person"),
+                "{text}"
+            );
+            assert!(
+                text.contains("Question: When is the next class? Answer: 14 January"),
+                "{text}"
+            );
+        }
+        assert_eq!(
+            a.state("replay").unwrap()["gate"],
+            "allowed",
+            "answering needs no new approval"
+        );
+        let (mut e, prompts) = crate::testkit::Script::new("An outline.", None);
+        a.run_stage(&mut e, "outline", 6).unwrap();
+        let seen = prompts.lock().unwrap().join("\n");
+        assert!(seen.contains("Answer: $48 a person"), "{seen}");
+    }
+
+    #[test]
+    fn an_answer_that_holds_a_password_is_refused_whole_and_nothing_is_saved_or_let_go() {
+        let mut a = asked_two_questions("facts-secret");
+        let err = a
+            .answer_facts(
+                vec![
+                    Some("$48".into()),
+                    Some("the password: hunter2-correct-horse".into()),
+                ],
+                5,
+            )
+            .unwrap_err();
+        assert_eq!(
+            err,
+            "This answer looks like it holds a password, so it wasn't saved. Please reword it."
+        );
+        let s = a.state("replay").unwrap();
+        assert_eq!(s["notes"], json!([]), "not even the clean answer is saved");
+        assert_eq!(s["blocked"], json!({"outline": "Waiting for your answers"}));
+        assert_eq!(a.fact_questions().unwrap().len(), 2, "still waiting");
+    }
+
+    #[test]
+    fn skipping_every_question_saves_no_note_and_lets_the_run_go_on() {
+        let mut a = asked_two_questions("facts-skip");
+        a.answer_facts(vec![None, Some("   ".into())], 5).unwrap();
+        let s = a.state("replay").unwrap();
+        assert_eq!(s["notes"], json!([]));
+        assert_eq!(s["blocked"], json!({}));
+    }
+
+    #[test]
+    fn answers_that_do_not_match_the_questions_or_come_when_nothing_is_asked_are_refused() {
+        let mut a = asked_two_questions("facts-shape");
+        assert!(a.answer_facts(vec![Some("one".into())], 5).is_err());
+        assert!(a.answer_facts(vec![None, None, None], 5).is_err());
+        assert_eq!(a.fact_questions().unwrap().len(), 2, "still waiting");
+        a.answer_facts(vec![None, None], 6).unwrap();
+        let err = a.answer_facts(vec![None, None], 7).unwrap_err();
+        assert!(err.contains("no questions"), "{err}");
+    }
+
+    #[test]
+    fn the_questions_are_one_item_in_the_decision_inbox_that_leads_to_the_form() {
+        let a = asked_two_questions("facts-inbox");
+        let items = crate::decision_inbox::collect("facts", a.studio().unwrap()).unwrap();
+        let rows: Vec<_> = items.iter().filter(|i| i.kind == "questions").collect();
+        assert_eq!(rows.len(), 1, "{items:?}");
+        assert_eq!(rows[0].anchor, "questions");
+        assert_eq!(rows[0].title, "Answer the crew's questions");
+        assert!(
+            items.iter().all(|i| i.kind != "escalation"),
+            "it is not also a blocked step: {items:?}"
+        );
     }
 
     #[test]
@@ -5414,7 +7065,7 @@ mod tests {
             .iter()
             .map(|f| f["kind"].as_str().unwrap())
             .collect();
-        assert_eq!(kinds, ["word", "pdf"], "{made}");
+        assert_eq!(kinds, ["word", "pdf", "deck"], "{made}");
         assert_eq!(a.final_files(&tools).unwrap()["files"], made["files"]);
         let folders = std::fs::read_dir(a.project_root().unwrap().join("exports"))
             .unwrap()
@@ -5423,6 +7074,807 @@ mod tests {
             folders, 2,
             "one partial set and one complete set; repeated requests make nothing new"
         );
+    }
+
+    fn documents_dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("sprout-documents-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn files_are_copied_to_documents_under_the_project_name_and_never_replace_one() {
+        let mut a = app("copy-documents");
+        a.create_project("larkspur", "Fix late freight.", 1)
+            .unwrap();
+        let docs = documents_dir("copy");
+        let src = docs.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        let word = src.join("larkspur-document.docx");
+        std::fs::write(&word, b"first").unwrap();
+        let first = a
+            .copy_to_documents_in(&docs, std::slice::from_ref(&word))
+            .unwrap();
+        let folder = docs.join("SproutCrew").join("larkspur");
+        assert_eq!(first, [folder.join("larkspur-document.docx")]);
+        std::fs::write(&word, b"second").unwrap();
+        std::fs::write(src.join("b.pdf"), b"pdf").unwrap();
+        let more = a
+            .copy_to_documents_in(&docs, &[word.clone(), src.join("b.pdf")])
+            .unwrap();
+        assert_eq!(
+            more,
+            [
+                folder.join("larkspur-document 2.docx"),
+                folder.join("b.pdf")
+            ]
+        );
+        std::fs::write(&word, b"third").unwrap();
+        let third = a
+            .copy_to_documents_in(&docs, std::slice::from_ref(&word))
+            .unwrap();
+        assert_eq!(third, [folder.join("larkspur-document 3.docx")]);
+        assert_eq!(
+            std::fs::read(&first[0]).unwrap(),
+            b"first",
+            "never replaced"
+        );
+        assert_eq!(std::fs::read(&more[0]).unwrap(), b"second");
+        // Without a Documents folder given to the app, nothing is copied anywhere.
+        assert!(a.copy_to_documents(&[src.join("b.pdf")]).is_err());
+        // A project name that is not a plain folder name still gives one folder inside SproutCrew.
+        assert_eq!(
+            crate::documents::folder_name("../Etc/My: case.v2"),
+            "Etc My case v2"
+        );
+        assert_eq!(crate::documents::folder_name("///"), "Project");
+    }
+
+    #[test]
+    fn a_file_with_the_same_bytes_as_one_already_in_the_folder_is_that_file_and_adds_no_copy() {
+        let mut a = app("copy-identical");
+        a.create_project("larkspur", "Fix late freight.", 1)
+            .unwrap();
+        let docs = documents_dir("identical");
+        let src = docs.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        let word = src.join("report.docx");
+        let folder = docs.join("SproutCrew").join("larkspur");
+        std::fs::write(&word, b"one").unwrap();
+        let first = a
+            .copy_to_documents_in(&docs, std::slice::from_ref(&word))
+            .unwrap();
+        // The same bytes again, and again: the first copy, and no "report 2".
+        for _ in 0..2 {
+            let again = a
+                .copy_to_documents_in(&docs, std::slice::from_ref(&word))
+                .unwrap();
+            assert_eq!(again, first);
+        }
+        // Other bytes are a new file, and the same bytes as that one are that one.
+        std::fs::write(&word, b"two").unwrap();
+        let two = a
+            .copy_to_documents_in(&docs, std::slice::from_ref(&word))
+            .unwrap();
+        assert_eq!(two, [folder.join("report 2.docx")]);
+        assert_eq!(
+            a.copy_to_documents_in(&docs, std::slice::from_ref(&word))
+                .unwrap(),
+            two
+        );
+        std::fs::write(&word, b"one").unwrap();
+        assert_eq!(
+            a.copy_to_documents_in(&docs, std::slice::from_ref(&word))
+                .unwrap(),
+            first
+        );
+        assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 2);
+        assert_eq!(std::fs::read(&first[0]).unwrap(), b"one");
+    }
+
+    #[test]
+    fn every_result_has_a_word_pdf_and_deck_saved_to_documents_once_for_each_version() {
+        let mut a = app("final-documents");
+        let docs = documents_dir("final");
+        a.set_documents_dir(docs.clone());
+        let mut e = ReplayEngine;
+        a.create_project("case", "Write a market note.", 1).unwrap();
+        a.propose(&mut e, 2).unwrap();
+        a.approve("Nitish", 3).unwrap();
+        while let Some(id) = a.ready_stages().unwrap().first().cloned() {
+            a.run_stage(&mut e, &id, 4).unwrap();
+        }
+        let tools = crate::clientfiles::Tools::default();
+        // The copy is a job for after the app lock is let go: until it is run nothing is in Documents.
+        let (waiting, job) = a.final_files_pending(&tools).unwrap();
+        assert!(!docs.join("SproutCrew").exists());
+        assert!(waiting["files"][0]["path"]
+            .as_str()
+            .unwrap()
+            .contains("/exports/final-"));
+        assert!(job.is_some());
+        let made = a.final_files(&tools).unwrap();
+        assert!(
+            made["notes"].to_string().contains("macOS may ask once"),
+            "{made}"
+        );
+        let folder = docs.join("SproutCrew").join("case");
+        let files = made["files"].as_array().unwrap();
+        let kinds: Vec<&str> = files.iter().map(|f| f["kind"].as_str().unwrap()).collect();
+        assert!(kinds.contains(&"word") && kinds.contains(&"deck"), "{made}");
+        for f in files {
+            let path = PathBuf::from(f["path"].as_str().unwrap());
+            assert!(path.starts_with(&folder) && path.is_file(), "{f}");
+        }
+        assert_eq!(made["folder"], json!(folder.display().to_string()));
+        // The plan makes no deck of its own, so the deck is made from the document: a slide for each section.
+        let deck_path = files.iter().find(|f| f["kind"] == "deck").unwrap()["path"]
+            .as_str()
+            .unwrap();
+        assert!(crate::office::read("pptx", &std::fs::read(deck_path).unwrap()).is_ok());
+        // Asking again, even after a restart of the screen, copies nothing new.
+        let before = std::fs::read_dir(&folder).unwrap().count();
+        let again = a.final_files(&tools).unwrap();
+        assert_eq!(again["files"], made["files"]);
+        assert!(!again["notes"].to_string().contains("macOS may ask"));
+        assert_eq!(std::fs::read_dir(&folder).unwrap().count(), before);
+        assert!(a.final_files_pending(&tools).unwrap().1.is_none());
+        // A file the person deleted is not put back, and the rest stay as they were.
+        std::fs::remove_file(deck_path).unwrap();
+        let after = a.final_files(&tools).unwrap();
+        assert_eq!(after["files"].as_array().unwrap().len(), files.len() - 1);
+        assert_eq!(std::fs::read_dir(&folder).unwrap().count(), before - 1);
+        // Moved or deleted all of them: the record stands, nothing is copied again, and the files are shown
+        // where they were made.
+        for f in after["files"].as_array().unwrap() {
+            std::fs::remove_file(f["path"].as_str().unwrap()).unwrap();
+        }
+        let gone = a.final_files(&tools).unwrap();
+        assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 0);
+        assert!(gone["files"][0]["path"]
+            .as_str()
+            .unwrap()
+            .contains("/exports/final-"));
+        assert!(gone["folder"].is_null());
+    }
+
+    #[test]
+    fn a_documents_folder_that_cannot_be_written_leaves_the_files_in_the_project_with_a_note() {
+        let mut a = app("final-documents-blocked");
+        let docs = documents_dir("blocked");
+        // A plain file where the folder SproutCrew has to be.
+        std::fs::write(docs.join("SproutCrew"), b"in the way").unwrap();
+        a.set_documents_dir(docs);
+        let mut e = ReplayEngine;
+        a.create_project("case", "Write a market note.", 1).unwrap();
+        a.propose(&mut e, 2).unwrap();
+        a.approve("Nitish", 3).unwrap();
+        while let Some(id) = a.ready_stages().unwrap().first().cloned() {
+            a.run_stage(&mut e, &id, 4).unwrap();
+        }
+        let made = a
+            .final_files(&crate::clientfiles::Tools::default())
+            .unwrap();
+        assert_eq!(made["files"][0]["kind"], "word");
+        let word = made["files"][0]["path"].as_str().unwrap();
+        assert!(word.contains("/exports/final-"), "{made}");
+        assert!(made["folder"].is_null());
+        assert!(
+            made["notes"]
+                .to_string()
+                .contains("could not be saved to Documents"),
+            "{made}"
+        );
+        assert!(
+            made["notes"].to_string().contains("Files and Folders"),
+            "{made}"
+        );
+    }
+
+    #[test]
+    fn the_files_made_by_hand_include_a_deck_made_from_the_document() {
+        let mut a = app("client-files-gate");
+        a.create_project("larkspur", "Fix late freight.", 1)
+            .unwrap();
+        let root = a.project_root().unwrap();
+        std::fs::create_dir_all(root.join("artifacts")).unwrap();
+        std::fs::write(
+            root.join("artifacts/document-1.md"),
+            "# Late freight\n\n## What happened\n\nPort delays hit. More.\n\n## What to do\n\nSwitch carriers.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("artifacts.json"),
+            r#"[{"name":"document","file":"document-1.md","sha256":"0","from_task":"t1"}]"#,
+        )
+        .unwrap();
+        let r = a
+            .export_client_files(
+                Some("document"),
+                None,
+                "",
+                &crate::clientfiles::Tools::default(),
+                5,
+            )
+            .unwrap();
+        let kinds: Vec<&str> = r["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["kind"].as_str().unwrap())
+            .collect();
+        assert_eq!(kinds, ["word", "deck"], "{r}");
+    }
+
+    #[test]
+    fn missing_details_hold_back_the_files_and_show_in_the_overview_and_the_inbox_until_filled_or_written_around(
+    ) {
+        let mut a = app("final-details");
+        let mut e = ReplayEngine;
+        a.create_project("case", "Write a market note.", 1).unwrap();
+        a.propose(&mut e, 2).unwrap();
+        // The step's guide carries the 2.1.1 instruction to mark a missing fact, as a template's guides do.
+        let mut plan = a.studio().unwrap().plan().cloned().unwrap();
+        for st in &mut plan.stages {
+            st.guide = format!(
+                "Write the piece. Where a fact only the person can supply is missing, write {MARK}what is missing] in its place.",
+                MARK = crate::gaps::MARK
+            );
+        }
+        a.save_plan(serde_json::to_value(&plan).unwrap(), 2)
+            .unwrap();
+        a.approve("Nitish", 3).unwrap();
+        let tools = crate::clientfiles::Tools::default();
+        while let Some(id) = a.ready_stages().unwrap().first().cloned() {
+            a.run_stage(&mut e, &id, 4).unwrap();
+        }
+        let item = |a: &App| {
+            a.decision_inbox()["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|i| i["kind"] == "details")
+                .cloned()
+        };
+        assert_eq!(a.final_files(&tools).unwrap()["gaps"], json!([]));
+        assert!(a.projects_overview()[0].get("details_missing").is_none());
+        assert!(item(&a).is_none());
+        // The finished text now has a marker and an open item: a new version of the final step's result.
+        let root = a.project_root().unwrap();
+        let (step, list) = {
+            let s = a.studio().unwrap();
+            let artifacts = s.project.artifacts().unwrap();
+            (
+                crate::package::final_step(s.plan().unwrap(), &artifacts).unwrap(),
+                artifacts,
+            )
+        };
+        let text = "# Offer\n\nThe price is [NEEDED: the price per seat].\n\n## Still open before sending\n\n- Name the owner.\n";
+        std::fs::write(root.join("artifacts").join("final-with-gaps.md"), text).unwrap();
+        let list: Vec<Value> = list
+            .into_iter()
+            .map(|mut x| {
+                if x["name"].as_str() == Some(step.as_str()) {
+                    x["file"] = json!("final-with-gaps.md");
+                    x["sha256"] = json!(format!("{:x}", Sha256::digest(text)));
+                }
+                x
+            })
+            .collect();
+        std::fs::write(
+            root.join("artifacts.json"),
+            serde_json::to_vec(&list).unwrap(),
+        )
+        .unwrap();
+        let folders = |a: &App| {
+            std::fs::read_dir(a.project_root().unwrap().join("exports"))
+                .unwrap()
+                .count()
+        };
+        let before = folders(&a);
+        let held = a.final_files(&tools).unwrap();
+        assert_eq!(
+            held["files"],
+            json!([]),
+            "no file is made while details are missing"
+        );
+        assert_eq!(folders(&a), before);
+        assert_eq!(
+            held["gaps"],
+            json!([{"what": "the price per seat"}, {"what": "Name the owner."}])
+        );
+        assert_eq!(held["accepted"], false);
+        // The files made by hand wait for the same details.
+        assert!(a
+            .export_client_files(Some(&step), None, "", &tools, 6)
+            .unwrap_err()
+            .contains("details are still missing"));
+        assert_eq!(held["note_steps"], json!([step.clone()]));
+        assert_eq!(held["rerun"], json!([step.clone()]));
+        let row = &a.projects_overview()[0];
+        assert_eq!(row["state"], "needs_details");
+        assert_eq!(row["details_missing"], 2);
+        let it = item(&a).expect("one details item");
+        assert_eq!(it["title"], "2 details missing from the draft");
+        assert_eq!(it["stage"], json!(step.clone()));
+        // An answer is a note, and the finish step has not run again, so the details are still missing.
+        a.add_note(&step, "Details from the person:\nthe price per seat: $5", 5)
+            .unwrap();
+        assert_eq!(a.final_files(&tools).unwrap()["accepted"], false);
+        // Finishing around them is the person's choice, and then the files are made without a marker.
+        a.add_note(
+            &step,
+            "Write around these missing details; do not leave placeholders: the price per seat; Name the owner.",
+            6,
+        )
+        .unwrap();
+        // The note alone does nothing: the finish step has not made a newer result, so the old text stays held back.
+        let waiting = a.final_files(&tools).unwrap();
+        assert_eq!(waiting["accepted"], false);
+        assert_eq!(waiting["files"], json!([]), "{waiting}");
+        assert!(item(&a).is_some());
+        // The price was answered above, so it counts as filled before the step has run again: one detail is left.
+        assert!(a.projects_overview()[0]["details_missing"] == 1);
+        // The step runs again and makes a newer result that still has the details missing: now it is accepted.
+        let root = a.project_root().unwrap();
+        std::fs::write(root.join("artifacts").join("final-again.md"), text).unwrap();
+        let list: Vec<Value> = a
+            .studio()
+            .unwrap()
+            .project
+            .artifacts()
+            .unwrap()
+            .into_iter()
+            .map(|mut x| {
+                if x["name"].as_str() == Some(step.as_str()) {
+                    x["file"] = json!("final-again.md");
+                    x["sha256"] = json!(format!("{:x}", Sha256::digest(text)));
+                }
+                x
+            })
+            .collect();
+        std::fs::write(
+            root.join("artifacts.json"),
+            serde_json::to_vec(&list).unwrap(),
+        )
+        .unwrap();
+        a.studio_mut()
+            .unwrap()
+            .journal
+            .append(
+                "worker.finished",
+                &json!({"task": "t99", "artifact": "final-again.md"}),
+                7,
+            )
+            .unwrap();
+        let done = a.final_files(&tools).unwrap();
+        assert_eq!(done["accepted"], true);
+        assert_eq!(
+            done["gaps"],
+            json!([{"what": "Name the owner."}]),
+            "the open item is still listed, so the screen can say so"
+        );
+        assert_eq!(
+            done["left_out"],
+            json!([{"what": "Name the owner."}]),
+            "the price was answered, so only what the note listed and nobody answered was left out"
+        );
+        assert_eq!(done["files"][0]["kind"], "word", "{done}");
+        let word = std::fs::read(done["files"][0]["path"].as_str().unwrap()).unwrap();
+        let text = crate::office::read("docx", &word).unwrap().pages.join("\n");
+        assert!(
+            text.contains("The price is $5") && !text.to_uppercase().contains("NEEDED"),
+            "the answer is in the file even though the step's text still held the marker: {text}"
+        );
+        assert!(a.projects_overview()[0].get("details_missing").is_none());
+        assert!(item(&a).is_none());
+        // A newer answer after that opens the question again.
+        a.add_note(&step, "Details from the person:\nthe price per seat: $5", 8)
+            .unwrap();
+        assert_eq!(a.final_files(&tools).unwrap()["accepted"], false);
+    }
+
+    /// A project whose guides ask for markers, with every step run, and the final step's newest result replaced by
+    /// `text` (as the model returned it). Returns the app, the final step and the file now holding the text.
+    fn project_with_final_text(tag: &str, text: &str) -> (App, String, String) {
+        let mut a = app(tag);
+        let mut e = ReplayEngine;
+        a.create_project("case", "Write a market note.", 1).unwrap();
+        a.propose(&mut e, 2).unwrap();
+        let mut plan = a.studio().unwrap().plan().cloned().unwrap();
+        for st in &mut plan.stages {
+            st.guide = format!(
+                "Write the piece. Where a fact only the person can supply is missing, write {}what is missing] in its place.",
+                crate::gaps::MARK
+            );
+        }
+        a.save_plan(serde_json::to_value(&plan).unwrap(), 2)
+            .unwrap();
+        a.approve("Nitish", 3).unwrap();
+        while let Some(id) = a.ready_stages().unwrap().first().cloned() {
+            a.run_stage(&mut e, &id, 4).unwrap();
+        }
+        let step = {
+            let s = a.studio().unwrap();
+            crate::package::final_step(s.plan().unwrap(), &s.project.artifacts().unwrap()).unwrap()
+        };
+        let file = new_final_result(&mut a, &step, text, "final-first.md", None);
+        (a, step, file)
+    }
+
+    /// Makes `text` the newest result of `step`, as a run that finished at journal time `finished` would.
+    fn new_final_result(
+        a: &mut App,
+        step: &str,
+        text: &str,
+        file: &str,
+        finished: Option<u64>,
+    ) -> String {
+        let root = a.project_root().unwrap();
+        std::fs::write(root.join("artifacts").join(file), text).unwrap();
+        let list: Vec<Value> = a
+            .studio()
+            .unwrap()
+            .project
+            .artifacts()
+            .unwrap()
+            .into_iter()
+            .map(|mut x| {
+                if x["name"].as_str() == Some(step) {
+                    x["file"] = json!(file);
+                    x["sha256"] = json!(format!("{:x}", Sha256::digest(text)));
+                }
+                x
+            })
+            .collect();
+        std::fs::write(
+            root.join("artifacts.json"),
+            serde_json::to_vec(&list).unwrap(),
+        )
+        .unwrap();
+        if let Some(at) = finished {
+            a.studio_mut()
+                .unwrap()
+                .journal
+                .append(
+                    "worker.finished",
+                    &json!({"task": "t99", "artifact": file}),
+                    at,
+                )
+                .unwrap();
+        }
+        file.to_string()
+    }
+
+    const LIVE_ARTICLE: &str = "# Your weekly box is changing
+
+We are moving to a fortnightly box from [NEEDED: the date the change starts]. Your delivery day stays the same.
+
+## Why we are making the change
+
+[NEEDED: the reason for the change]
+
+## Skipping a week
+
+Tell us by Friday if you want to skip. [NEEDED: whether subscribers can skip a week and how]
+
+## Contact
+
+Write to us any time.
+You can also reach us at [NEEDED: the support email address].
+";
+
+    #[test]
+    fn finish_with_what_i_have_is_accepted_only_with_the_markers_gone_from_the_text_the_screen_and_the_files_read(
+    ) {
+        let (mut a, step, first) = project_with_final_text("live-write-around", LIVE_ARTICLE);
+        let tools = crate::clientfiles::Tools::default();
+        let held = a.final_files(&tools).unwrap();
+        assert_eq!(held["gaps"].as_array().unwrap().len(), 4, "{held}");
+        assert_eq!(held["files"], json!([]));
+        a.add_note(
+            &step,
+            "Write around these missing details; do not leave placeholders: the date the change starts; the reason for the change; whether subscribers can skip a week and how; the support email address",
+            5,
+        )
+        .unwrap();
+        // The model returned the text byte for byte, markers and all, after the note.
+        let again = new_final_result(&mut a, &step, LIVE_ARTICLE, "final-again.md", Some(6));
+        let done = a.final_files(&tools).unwrap();
+        assert_eq!(done["accepted"], true, "{done}");
+        assert_eq!(done["gaps"], json!([]), "no marker is left in what is read");
+        assert_eq!(done["left_out"].as_array().unwrap().len(), 4, "{done}");
+        let shown = a.read_artifact(&again).unwrap();
+        assert_eq!(
+            shown,
+            "# Your weekly box is changing\n\nYour delivery day stays the same.\n\n## Skipping a week\n\nTell us by Friday if you want to skip.\n\n## Contact\n\nWrite to us any time.\n"
+        );
+        assert!(
+            a.read_artifact_raw(&again)
+                .unwrap()
+                .contains("[NEEDED: the reason"),
+            "the result on disk is not edited"
+        );
+        // The Word file is made from that text, with no empty heading and no dangling "reach us at".
+        let word = std::fs::read(done["files"][0]["path"].as_str().unwrap()).unwrap();
+        let doc = crate::office::read("docx", &word).unwrap().pages.join("\n");
+        assert!(
+            !doc.to_uppercase().contains("NEEDED") && !doc.contains("reach us"),
+            "{doc}"
+        );
+        assert!(!doc.contains("Why we are making the change"), "{doc}");
+        // The report says what was left out, and the folder copy is the same text.
+        let report = crate::run_report::summary(a.studio().unwrap(), 9).unwrap();
+        assert!(
+            report.contains("finished with 4 details left out")
+                && report.contains("- the reason for the change"),
+            "{report}"
+        );
+        let vault = a.project_root().unwrap().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+        let saved = a
+            .save_result_to_folder(&step, &vault.to_string_lossy(), &vault, 10)
+            .unwrap();
+        let saved = std::fs::read_to_string(saved).unwrap();
+        assert!(
+            !saved.to_uppercase().contains("NEEDED") && saved.contains("Your delivery day"),
+            "{saved}"
+        );
+        // The earlier result is history and is shown as it was written.
+        assert!(a
+            .read_artifact(&first)
+            .unwrap()
+            .contains("[NEEDED: the reason"));
+        // A newer answer opens the question again, with its answer put in place.
+        a.add_note(
+            &step,
+            "Details from the person:\nthe reason for the change: Boxes were going to waste",
+            11,
+        )
+        .unwrap();
+        let reopened = a.final_files(&tools).unwrap();
+        assert_eq!(reopened["accepted"], false, "{reopened}");
+    }
+
+    #[test]
+    fn what_was_left_out_is_what_the_note_listed_whatever_the_step_did_with_the_markers() {
+        let (mut a, step, _) = project_with_final_text("live-left-out", LIVE_ARTICLE);
+        let tools = crate::clientfiles::Tools::default();
+        // Thirteen details, one with a comma and one with a colon in it, as the page writes them: joined by "; ".
+        let mut items: Vec<String> = (1..=11).map(|i| format!("detail number {i}")).collect();
+        items.push("the price, per seat, in dollars".into());
+        items.push("whether to skip: how".into());
+        a.add_note(
+            &step,
+            &format!("{}{}", crate::gaps::WRITE_AROUND, items.join("; ")),
+            5,
+        )
+        .unwrap();
+        // Before the step runs again nothing is acted on.
+        assert_eq!(a.final_files(&tools).unwrap()["left_out"], json!([]));
+        // The step ran again and removed every marker itself, as the live run did.
+        let clean = "# Your weekly box is changing\n\nYour delivery day stays the same.\n";
+        new_final_result(&mut a, &step, clean, "final-clean.md", Some(6));
+        let done = a.final_files(&tools).unwrap();
+        assert_eq!(done["gaps"], json!([]), "{done}");
+        assert_eq!(done["left_out"].as_array().unwrap().len(), 13, "{done}");
+        assert_eq!(
+            done["left_out"][11]["what"],
+            "the price, per seat, in dollars"
+        );
+        assert_eq!(done["left_out"][12]["what"], "whether to skip: how");
+        assert!(!done["files"].as_array().unwrap().is_empty(), "{done}");
+        let report = crate::run_report::summary(a.studio().unwrap(), 9).unwrap();
+        assert!(
+            report.contains("finished with 13 details left out"),
+            "{report}"
+        );
+        // The person then answers two of them: those are no longer left out.
+        a.add_note(
+            &step,
+            "Details from the person:\ndetail number 2: Tuesday\nthe price, per seat, in dollars: 5",
+            10,
+        )
+        .unwrap();
+        let later = a.final_files(&tools).unwrap();
+        let names: Vec<&str> = later["left_out"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|g| g["what"].as_str().unwrap())
+            .collect();
+        assert_eq!(names.len(), 11, "{later}");
+        assert!(
+            !names.contains(&"detail number 2")
+                && !names.contains(&"the price, per seat, in dollars")
+        );
+        // An answer typed with no words does not count as an answer.
+        a.add_note(&step, "Details from the person:\ndetail number 3:", 11)
+            .unwrap();
+        assert_eq!(
+            a.final_files(&tools).unwrap()["left_out"]
+                .as_array()
+                .unwrap()
+                .len(),
+            11
+        );
+    }
+
+    #[test]
+    fn a_write_around_note_whose_details_were_all_answered_leaves_nothing_out() {
+        let (mut a, step, _) = project_with_final_text("live-all-answered", LIVE_ARTICLE);
+        let tools = crate::clientfiles::Tools::default();
+        a.add_note(
+            &step,
+            "Details from the person:\nthe reason for the change: waste\nthe date the change starts: 1 March",
+            5,
+        )
+        .unwrap();
+        a.add_note(
+            &step,
+            "Write around these missing details; do not leave placeholders: the reason for the change; the date the change starts",
+            6,
+        )
+        .unwrap();
+        new_final_result(&mut a, &step, "# T\n\nBody.\n", "final-clean.md", Some(7));
+        assert_eq!(a.final_files(&tools).unwrap()["left_out"], json!([]));
+    }
+
+    #[test]
+    fn an_answer_the_step_ignored_is_put_in_place_and_closes_that_gap_but_a_marker_left_unanswered_stays(
+    ) {
+        let (mut a, step, file) = project_with_final_text("live-answer", LIVE_ARTICLE);
+        let tools = crate::clientfiles::Tools::default();
+        a.add_note(
+            &step,
+            "Details from the person:\nwhether subscribers can skip a week and how: Yes, tell us by Friday.\nthe support email address: hello@box.example",
+            5,
+        )
+        .unwrap();
+        // The step has not run again, or ran and returned the same text: either way the answers are in the text read.
+        let shown = a.read_artifact(&file).unwrap();
+        assert!(shown.contains("skip. Yes, tell us by Friday.\n"), "{shown}");
+        assert!(shown.contains("reach us at hello@box.example."), "{shown}");
+        assert!(
+            shown.contains("[NEEDED: the reason for the change]"),
+            "unanswered markers stay: {shown}"
+        );
+        let held = a.final_files(&tools).unwrap();
+        assert_eq!(
+            held["gaps"],
+            json!([{"what": "the date the change starts"}, {"what": "the reason for the change"}]),
+            "only the markers still in the text are missing: {held}"
+        );
+        assert_eq!(held["files"], json!([]));
+        // Answer the rest, and the files are made from the filled text.
+        a.add_note(
+            &step,
+            "Details from the person:\nthe date the change starts: 1 March\nthe reason for the change: Boxes were going to waste",
+            6,
+        )
+        .unwrap();
+        let done = a.final_files(&tools).unwrap();
+        assert_eq!(done["gaps"], json!([]), "{done}");
+        assert_eq!(
+            done["accepted"], false,
+            "nothing was written around: they were answered"
+        );
+        let word = std::fs::read(done["files"][0]["path"].as_str().unwrap()).unwrap();
+        let doc = crate::office::read("docx", &word).unwrap().pages.join("\n");
+        assert!(
+            doc.contains("from 1 March.")
+                && doc.contains("Boxes were going to waste.")
+                && !doc.to_uppercase().contains("NEEDED"),
+            "{doc}"
+        );
+        assert!(a
+            .read_artifact_raw(&file)
+            .unwrap()
+            .contains("[NEEDED: the date"));
+    }
+
+    #[test]
+    fn a_long_slug_in_the_text_does_not_stop_the_folder_copy_or_the_run_report() {
+        let text = "# Weekly bread\n\nRead more at https://harborlane.example/2026-spring-weekly-bread-subscription-launch-update today.\n";
+        let (mut a, step, _) = project_with_final_text("long-slug-text", text);
+        let vault = a.project_root().unwrap().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+        let saved = a.save_result_to_folder(&step, &vault.to_string_lossy(), &vault, 10);
+        assert!(saved.is_ok(), "{saved:?}");
+        let report = crate::run_report::checked_summary(a.studio().unwrap(), 11);
+        assert!(report.is_ok(), "{report:?}");
+    }
+
+    #[test]
+    fn a_plan_made_before_markers_counts_no_missing_details_and_offers_its_files() {
+        let mut a = app("old-guide");
+        let mut e = ReplayEngine;
+        a.create_project("case", "Write a market note.", 1).unwrap();
+        a.propose(&mut e, 2).unwrap();
+        // The guides of a plan made before 2.1.1 never asked the writers to mark a missing fact.
+        let mut plan = a.studio().unwrap().plan().cloned().unwrap();
+        for st in &mut plan.stages {
+            st.guide = "Write the piece. Put anything still open in a section titled Still open before sending."
+                .to_string();
+        }
+        a.save_plan(serde_json::to_value(&plan).unwrap(), 3)
+            .unwrap();
+        a.approve("Nitish", 4).unwrap();
+        let tools = crate::clientfiles::Tools::default();
+        while let Some(id) = a.ready_stages().unwrap().first().cloned() {
+            a.run_stage(&mut e, &id, 5).unwrap();
+        }
+        let root = a.project_root().unwrap();
+        let (step, list) = {
+            let s = a.studio().unwrap();
+            let artifacts = s.project.artifacts().unwrap();
+            (
+                crate::package::final_step(s.plan().unwrap(), &artifacts).unwrap(),
+                artifacts,
+            )
+        };
+        // An old result that has a "Still open before sending" section for the reader, and a stray marker.
+        let text = "# Offer\n\nThe price is [NEEDED: the price per seat].\n\n## Still open before sending\n\n- Name the owner.\n";
+        std::fs::write(root.join("artifacts").join("final-old.md"), text).unwrap();
+        let list: Vec<Value> = list
+            .into_iter()
+            .map(|mut x| {
+                if x["name"].as_str() == Some(step.as_str()) {
+                    x["file"] = json!("final-old.md");
+                    x["sha256"] = json!(format!("{:x}", Sha256::digest(text)));
+                }
+                x
+            })
+            .collect();
+        std::fs::write(
+            root.join("artifacts.json"),
+            serde_json::to_vec(&list).unwrap(),
+        )
+        .unwrap();
+        let made = a.final_files(&tools).unwrap();
+        assert_eq!(made["gaps"], json!([]), "{made}");
+        assert!(
+            !made["files"].as_array().unwrap().is_empty(),
+            "files are offered: {made}"
+        );
+        assert!(a.projects_overview()[0].get("details_missing").is_none());
+        assert_ne!(a.projects_overview()[0]["state"], "needs_details");
+        assert!(a.decision_inbox()["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|i| i["kind"] != "details"));
+    }
+
+    #[test]
+    fn a_note_for_the_finish_step_keeps_the_approval_and_the_step_runs_again_under_it() {
+        let mut a = app("note-rerun");
+        let mut e = ReplayEngine;
+        a.create_project("case", "Write a market note.", 1).unwrap();
+        a.propose(&mut e, 2).unwrap();
+        a.approve("Nitish", 3).unwrap();
+        while let Some(id) = a.ready_stages().unwrap().first().cloned() {
+            a.run_stage(&mut e, &id, 4).unwrap();
+        }
+        let step = {
+            let s = a.studio().unwrap();
+            crate::package::final_step(s.plan().unwrap(), &s.project.artifacts().unwrap()).unwrap()
+        };
+        let hash = a.studio().unwrap().approval_hash().unwrap();
+        a.add_note(
+            &step,
+            "Write around these missing details; do not leave placeholders: the date",
+            5,
+        )
+        .unwrap();
+        let s = a.studio().unwrap();
+        assert_eq!(s.gate(), Gate::Allowed, "a note is outside the approval");
+        assert_eq!(s.approval_hash().unwrap(), hash);
+        // A step that already has a result runs again with no new approval. (That the note reaches the step's
+        // prompt is pinned by the engine test `a_note_reaches_the_next_run_outside_the_data_blocks`.)
+        a.run_stage(&mut e, &step, 6).unwrap();
+        assert_eq!(a.studio().unwrap().gate(), Gate::Allowed);
     }
 
     #[test]
@@ -5479,5 +7931,90 @@ mod tests {
             .map_err(|e| e.join("; "))
             .unwrap();
         assert_eq!(a.state("replay").unwrap()["web_research"], false);
+    }
+
+    #[test]
+    fn new_projects_start_with_saved_policy_defaults_and_older_ones_keep_their_own() {
+        use crate::policy_defaults::{Choice, Defaults};
+        let mut a = app("defaults-new");
+        let mut e = ReplayEngine;
+        a.create_project("older", "Write a market note.", 1)
+            .unwrap();
+        a.propose(&mut e, 2).unwrap();
+        let never_send = Defaults {
+            send_outside: Choice::Never,
+            ..Defaults::default()
+        };
+        assert!(a
+            .set_policy_defaults(never_send, &[], 3)
+            .unwrap()
+            .is_empty());
+        assert_eq!(a.policy_defaults(), never_send);
+        a.create_project("newer", "Write a market note.", 4)
+            .unwrap();
+        a.propose(&mut e, 5).unwrap();
+        let v = a.policy_overview();
+        assert_eq!(v["defaults"]["send_outside"], "never");
+        let row = |n: &str| {
+            v["projects"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["name"] == n)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(row("newer")["guardrails"]["send_outside"], "never");
+        assert_eq!(row("newer")["fit"]["looser"], json!([]));
+        assert_eq!(row("older")["guardrails"]["send_outside"], "ask_each_time");
+        assert_eq!(row("older")["fit"]["looser"], json!(["send_outside"]));
+    }
+
+    #[test]
+    fn tightening_a_named_project_to_the_defaults_ends_its_approval() {
+        use crate::policy_defaults::{Choice, Defaults};
+        let mut a = app("defaults-tighten");
+        let mut e = ReplayEngine;
+        a.create_project("case", "Write a market note.", 1).unwrap();
+        a.propose(&mut e, 2).unwrap();
+        let h = a.approval_preview().unwrap();
+        a.approve_seen("case", &h, "Ana Ruiz", 3).unwrap();
+        a.create_project("other", "Write a market note.", 4)
+            .unwrap();
+        a.propose(&mut e, 5).unwrap();
+        let d = Defaults {
+            delete_files: Choice::Never,
+            ..Defaults::default()
+        };
+        // "case" is not the open project, and it is tightened all the same.
+        let changed = a.set_policy_defaults(d, &["case".into()], 6).unwrap();
+        assert_eq!(changed, ["case"]);
+        let v = a.policy_overview();
+        let case = v["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["name"] == "case")
+            .unwrap()
+            .clone();
+        assert_eq!(case["guardrails"]["delete_files"], "never");
+        assert_eq!(case["approved"], false);
+        // Tightening again changes nothing, so nothing more is recorded.
+        assert!(a
+            .set_policy_defaults(d, &["case".into()], 7)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn saving_defaults_with_a_project_that_does_not_exist_saves_nothing() {
+        use crate::policy_defaults::{Choice, Defaults};
+        let mut a = app("defaults-missing");
+        let d = Defaults {
+            install_software: Choice::Never,
+            ..Defaults::default()
+        };
+        assert!(a.set_policy_defaults(d, &["nope".into()], 1).is_err());
+        assert_eq!(a.policy_defaults(), Defaults::default());
     }
 }

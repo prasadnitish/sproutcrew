@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { contextLine, filterModels, groups, makers, money, priceLine, type CatalogModel } from '../src/models.ts';
+import { contextLine, filterModels, groups, makers, modelName, money, priceLine, type Catalog, type CatalogModel } from '../src/models.ts';
 
 const m = (id: string, over: Partial<CatalogModel> = {}): CatalogModel => ({
   id, name: id, maker: id.split('/')[0], context_length: 128000, input_per_mtok: 1, output_per_mtok: 5, free: false, sees_images: false, ...over,
@@ -46,4 +46,22 @@ test('each model shows once, in Recommended, then Free, then All models', () => 
   assert.deepEqual(g[1].models.map((x) => x.id), ['openrouter/free', 'meta-llama/llama-4-scout:free']);
   assert.deepEqual(g[2].models.map((x) => x.id), ['openrouter/auto', 'mistralai/mistral-small-2603']);
   assert.deepEqual(groups([], ['a/b']), []);
+});
+
+test('a model has a readable name before the list loads, and the raw ID is shown only when nothing can name it', () => {
+  const loaded: Catalog = { models: list, fetched_at: 1, offline: false, recommended: { writing: [], checking: [] } };
+  const offline: Catalog = { ...loaded, offline: true, models: [m('anthropic/claude-haiku-5.5')] };
+  // Pending: a default model is named from the app's own list, any other shows a placeholder, never its ID.
+  assert.equal(modelName('anthropic/claude-haiku-5.5', null, false), 'Anthropic: Claude Haiku 5.5');
+  assert.equal(modelName('mistralai/mistral-small-2603', null, false), 'Mistral: Mistral Small');
+  assert.equal(modelName('x-ai/grok-4.3', null, false), 'Loading name…');
+  assert.equal(modelName('', null, false), '');
+  // Loaded: the list's name wins; an ID the list does not know stays as typed.
+  assert.equal(modelName('anthropic/claude-haiku-5.5', loaded, false), 'Claude Haiku 5.5');
+  assert.equal(modelName('x-ai/grok-4.3', loaded, false), 'x-ai/grok-4.3');
+  // The offline list names a model by its ID; a default still gets its friendly name.
+  assert.equal(modelName('anthropic/claude-haiku-5.5', offline, false), 'Anthropic: Claude Haiku 5.5');
+  // The load failed: defaults keep their names, others fall back to the ID.
+  assert.equal(modelName('x-ai/grok-4.3', null, true), 'x-ai/grok-4.3');
+  assert.equal(modelName('openrouter/free', null, true), 'Free Models Router');
 });

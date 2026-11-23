@@ -1,5 +1,5 @@
 import type { NextDraft } from "./handoff";
-import { KeyboardEvent, ReactNode } from "react";
+import { KeyboardEvent, ReactNode, useEffect, useId, useRef, useState } from "react";
 import { choiceIndex } from "./navigation";
 
 export const text = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : JSON.stringify(e));
@@ -12,8 +12,8 @@ export function Chip({ tone, children }: { tone: "ok" | "warn" | "bad" | "info" 
 /** The one status pill (docs/DESIGN.md §5): the same six states and the same words everywhere. */
 export type PillState = "queued" | "running" | "approval" | "done" | "failed" | "cancelled";
 export const PILL_WORD: Record<PillState, string> = { queued: "Queued", running: "Running", approval: "Needs approval", done: "Done", failed: "Failed", cancelled: "Cancelled" };
-export function StatusPill({ state, title }: { state: PillState; title?: string }) {
-  return <span className={`status-pill ${state}`} title={title}>{PILL_WORD[state]}</span>;
+export function StatusPill({ state, title, word }: { state: PillState; title?: string; word?: string }) {
+  return <span className={`status-pill ${state}`} title={title}>{word ?? PILL_WORD[state]}</span>;
 }
 
 /** A colored monogram chip for who does a step: a muted tint, never the accent and never a status color. */
@@ -116,6 +116,15 @@ export type Ctx = {
   s: State;
   engine: EngineMode;
   busy: string;
+  /** What the run bar is doing right now. Empty once Stop is pressed, though the stopped step may still be in
+   *  flight, so the boxes that ask for a change open at once while every other control keeps to `busy`. */
+  askBusy: string;
+  /** Set by Stop and read by the run, so Stop works from any tab. */
+  stopFlag: { current: boolean };
+  /** A run of steps is going or finishing: busy, between two steps, or stopped with a step still in flight. */
+  running: boolean;
+  /** The person pressed Stop and the step that was running has not returned yet. */
+  stopping: boolean;
   guard: (f: () => Promise<unknown>) => Promise<void>;
   track: (e: RunEvent) => void;
   /** Reads the project again, so progress is current while a long run is still going. */
@@ -128,3 +137,71 @@ export type Ctx = {
   /** Opens another project. */
   openProject: (name: string) => void;
 };
+
+/** A mark that something needs the person (DESIGN_SPEC.md §9): it starts with "!", and its tone agrees with its word. */
+export function Flag({ tone = "warn", children }: { tone?: "warn" | "bad" | "info"; children: ReactNode }) {
+  return <b className={`flag ${tone}`}><span aria-hidden="true">! </span>{children}</b>;
+}
+
+/** One section (DESIGN_SPEC.md §9). Closed, it still says its value; a flagged section opens by itself. The summary
+ *  holds no heading, so screen readers keep it as one button. */
+export function Section({ title, value, flag, tone, open, children }: { title: ReactNode; value?: ReactNode; flag?: string; tone?: "warn" | "bad" | "info"; open?: boolean; children: ReactNode }) {
+  return (
+    <details className="sect" open={open || !!flag}>
+      <summary><span className="sect-title">{title}</span>{flag && <Flag tone={tone}>{flag}</Flag>}{value !== undefined && <span className="sect-value">{value}</span>}</summary>
+      <div className="sect-body">{children}</div>
+    </details>
+  );
+}
+
+/** A hash as the screens show it: two groups of four (DESIGN_SPEC.md §5). The full value goes in a title or a section. */
+export function shortHash(h: string): string {
+  const x = h.replace(/[^0-9a-f]/gi, "").slice(0, 8);
+  return x.length < 8 ? x : `${x.slice(0, 4)} ${x.slice(4)}`;
+}
+
+/** A native modal dialog (DESIGN_SPEC.md §9). It opens with showModal, so the page behind is inert, Esc closes it and
+ *  decides nothing, and focus returns to the control that opened it. The safe choice inside takes `data-autofocus`. */
+export function Dialog({ title, onClose, children, describe }: { title: string; onClose: () => void; children: ReactNode; describe?: string }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const id = useId();
+  const closing = useRef(onClose);
+  closing.current = onClose;
+  // Opened on mount and closed on unmount. A close that is followed at once by opening again (React runs effects
+  // twice in development) is not the person closing it, so it is ignored above.
+  useEffect(() => {
+    const d = ref.current;
+    if (d && !d.open) d.showModal();
+    // React does not write `autofocus` to the page, so the safe choice is marked `data-autofocus` and focused here.
+    d?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+    return () => { if (d?.open) d.close(); };
+  }, []);
+  return (
+    <dialog ref={ref} className="dlg" aria-labelledby={id} aria-describedby={describe} onClose={() => { if (!ref.current?.open) closing.current(); }}>
+      <h2 id={id} className="dlg-title">{title}</h2>
+      {children}
+    </dialog>
+  );
+}
+
+/** Confirm (DESIGN_SPEC.md §9): every remove and delete asks first, with focus on Keep it. Esc keeps it too. */
+export function Confirm({ title, line, action, onKeep, onConfirm }: { title: string; line: string; action: string; onKeep: () => void; onConfirm: () => void }) {
+  return (
+    <Dialog title={title} onClose={onKeep}>
+      <p>{line}</p>
+      <div className="dlg-foot">
+        <button data-autofocus onClick={onKeep}>Keep it</button>
+        <span className="sp" />
+        <button onClick={onConfirm}>{action}</button>
+      </div>
+    </Dialog>
+  );
+}
+
+type Asked = { title: string; line: string; action: string; run: () => void };
+/** A Confirm a screen opens with `ask(...)` and renders where it likes. */
+export function useConfirm(): [(a: Asked) => void, ReactNode] {
+  const [a, setA] = useState<Asked | null>(null);
+  const el = a ? <Confirm title={a.title} line={a.line} action={a.action} onKeep={() => setA(null)} onConfirm={() => { setA(null); a.run(); }} /> : null;
+  return [setA, el];
+}

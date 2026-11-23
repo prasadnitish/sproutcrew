@@ -21,6 +21,11 @@ function upstream(steps: Owned[], id: string, seen = new Set<string>()): Set<str
   return seen;
 }
 
+/** Every step that reads this step's result, directly or through others. In plan order. */
+export function afterOf<T extends Owned>(steps: T[], id: string): T[] {
+  return steps.filter((s) => s.id !== id && upstream(steps, s.id).has(id));
+}
+
 /** The checking steps that read this step's result, directly or through others. In plan order. */
 export function checksOf<T extends Owned>(steps: T[], id: string, checking: (role: string) => boolean): T[] {
   return steps.filter((s) => checking(s.owner_role) && upstream(steps, s.id).has(id));

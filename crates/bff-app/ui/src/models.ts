@@ -17,6 +17,25 @@ export type Catalog = {
   recommended: { writing: string[]; checking: string[] };
 };
 
+/** The app's own default models, named before OpenRouter's list has loaded or when it cannot. Matches `catalog.rs`. */
+const DEFAULT_NAMES: Record<string, string> = {
+  "anthropic/claude-haiku-5.5": "Anthropic: Claude Haiku 5.5",
+  "mistralai/mistral-small-2603": "Mistral: Mistral Small",
+  "openai/gpt-6.1-terra": "OpenAI: GPT-6.1 Terra",
+  "deepseek/deepseek-v4.1-flash": "DeepSeek: V4.1 Flash",
+  "openrouter/free": "Free Models Router",
+};
+
+/** A model's readable name. While the list loads, a default model shows its name and any other shows a short
+ *  placeholder, never the raw ID. The ID is shown only for a model the loaded list (or a failed load) cannot name. */
+export function modelName(id: string, catalog: Catalog | null, failed: boolean): string {
+  if (!id) return "";
+  const own = DEFAULT_NAMES[id];
+  if (!catalog) return own ?? (failed ? id : "Loading name…");
+  const listed = catalog.models.find((m) => m.id === id)?.name;
+  return listed && listed !== id ? listed : own ?? id;
+}
+
 /** One price, or "unknown". Never shows an unknown price as $0. */
 export function money(v: number | null): string {
   if (v === null || !Number.isFinite(v) || v < 0) return "unknown";

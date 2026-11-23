@@ -1,6 +1,6 @@
 /** Where each step sits in the workflow picture. A step is in the column after the last step it waits for, so steps
  *  that wait for the same step share a column: they can run at the same time. Each side has a lane, writers above
- *  checkers, and steps in the same column and lane are stacked. */
+ *  second check, and steps in the same column and lane are stacked. */
 export type Side = "writing" | "checking";
 export type DiagramStep = { id: string; title: string; side: Side; needs?: string[] };
 export type Node = { id: string; x: number; y: number; side: Side };

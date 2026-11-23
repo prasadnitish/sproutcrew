@@ -119,14 +119,19 @@ fn valid_id(id: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
 }
 
-/// A guide as the plan keeps it: cut to length, and a review step keeps the check for steering text exactly once.
-fn guide_for(owner: &str, text: &str) -> String {
-    let g: String = clip(text.trim(), crate::lead::MAX_GUIDE);
+/// A guide as the plan keeps it: cut to length, and a review step keeps the check for steering text exactly once. A
+/// check that asks for a verdict (`verdict`) keeps that ask last, so editing its instructions never turns the verdict
+/// off.
+fn guide_for(owner: &str, text: &str, verdict: bool) -> String {
+    let mut g: String = clip(text.trim(), crate::lead::MAX_GUIDE);
     if owner == "reviewer" && !g.is_empty() && !g.contains(crate::workflows::STEER_CHECK) {
-        format!("{g} {}", crate::workflows::STEER_CHECK)
-    } else {
-        g
+        g = format!("{g} {}", crate::workflows::STEER_CHECK);
     }
+    if owner == "reviewer" && verdict && !g.is_empty() && !g.contains(crate::verdict::VERDICT_GUIDE)
+    {
+        g = format!("{g} {}", crate::verdict::VERDICT_GUIDE);
+    }
+    g
 }
 
 struct Outcome {
@@ -283,7 +288,7 @@ fn plan_after(plan: &Plan, changes: &[Change]) -> Result<Outcome, Vec<String>> {
                         id: c.id.clone(),
                         title: c.title.trim().to_string(),
                         owner_role: c.role.clone(),
-                        guide: guide_for(&c.role, &c.text),
+                        guide: guide_for(&c.role, &c.text, false),
                     },
                 );
                 out.summary.push(format!(
@@ -301,7 +306,7 @@ fn plan_after(plan: &Plan, changes: &[Change]) -> Result<Outcome, Vec<String>> {
                 out.summary.push(format!(
                     "Instructions for \"{}\": {}",
                     c.title.trim(),
-                    guide_for(&c.role, &c.text)
+                    guide_for(&c.role, &c.text, false)
                 ));
                 out.touched.push(c.id.clone());
             }
@@ -389,7 +394,8 @@ fn plan_after(plan: &Plan, changes: &[Change]) -> Result<Outcome, Vec<String>> {
                     } else {
                         c.text.clone()
                     };
-                    s.guide = guide_for(&s.owner_role, &text);
+                    let verdict = crate::verdict::asks_for_verdict(&s.guide);
+                    s.guide = guide_for(&s.owner_role, &text, verdict);
                     if !c.text.trim().is_empty() {
                         what.push("the instructions");
                     }
@@ -1414,6 +1420,43 @@ mod tests {
         let g = &s.plan().unwrap().stages[1].guide;
         assert_eq!(g.matches(crate::workflows::STEER_CHECK).count(), 1, "{g}");
         assert!(g.starts_with("Check every figure 1."));
+    }
+
+    #[test]
+    fn an_edited_verdict_check_still_asks_for_a_verdict_once_and_last() {
+        let mut s = setup("co-verdict");
+        let mut plan = s.plan().unwrap().clone();
+        plan.stages[1].guide = format!(
+            "Check it. {} {}",
+            crate::workflows::STEER_CHECK,
+            crate::verdict::VERDICT_GUIDE
+        );
+        s.set_plan(plan, 20).unwrap();
+        for round in 0..2 {
+            let t = say_with(
+                &mut s,
+                reply(
+                    vec![with(
+                        ch("edit_step"),
+                        &[
+                            ("step", "review"),
+                            ("text", &format!("Check every figure {round}.")),
+                        ],
+                    )],
+                    &[],
+                ),
+                "stricter",
+            )
+            .unwrap();
+            apply(&mut s, &pending(&t).id.clone(), "N", 30 + round).unwrap();
+        }
+        let g = &s.plan().unwrap().stages[1].guide;
+        assert!(g.starts_with("Check every figure 1."), "{g}");
+        assert_eq!(g.matches(crate::verdict::VERDICT_GUIDE).count(), 1, "{g}");
+        assert_eq!(g.matches(crate::workflows::STEER_CHECK).count(), 1, "{g}");
+        assert!(g.ends_with(crate::verdict::VERDICT_GUIDE), "{g}");
+        // A check that never asked for a verdict is not given one by an edit.
+        assert!(!super::guide_for("reviewer", "Look.", false).contains("Verdict:"));
     }
 
     #[test]

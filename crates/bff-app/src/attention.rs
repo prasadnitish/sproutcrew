@@ -207,6 +207,7 @@ pub fn start(app: &tauri::AppHandle, data: &Path) -> Result<(), Box<dyn std::err
                 for error in errors {
                     items.push(Item {
                         revision: String::new(),
+                        step_title: String::new(),
                         project: error["project"].as_str().unwrap_or_default().into(),
                         stage: String::new(),
                         id: "inbox-unreadable".into(),

@@ -1,12 +1,13 @@
-import { KeyboardEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Added, api, Recommended, Source, UseCase } from "./api";
 import { AddedNote, AddMaterial, MaterialMode, SourceList } from "./Files";
 import { Choice, DEFAULT_CHECKING, DEFAULT_WRITING, KEYS_CHANGED, ProviderPick, useProviders } from "./Pick";
-import { choiceIndex } from "./navigation";
 import { POLISH_HELP, WEB_HELP } from "./Extras";
-import { suggestName } from "./projects";
+import { suggestName, uniqueName } from "./projects";
+import { CONNECTED_MS, findKeyShape, isKeyInBrief, keyInBriefText, withoutKey } from "./keyshape";
 import type { NextDraft } from "./handoff";
-import { Chip, Panel, text } from "./ui";
+import { addedLine, PathInfo, pathLabel, sizeLabel } from "./addedFiles";
+import { Chip, Dialog, Panel, text } from "./ui";
 
 /** The outcomes whose plan ends with a step that writes the finished text, so a polishing step can follow it. */
 const POLISHABLE = ["writing", "proposal", "research_brief"];
@@ -25,7 +26,7 @@ const EXAMPLES: Record<string, string> = {
   social_publishing: "Announce that the claims dashboard is live. Three posts, plain tone, one with the headline result.",
   brainstorm: "Should we add a shared family calendar to our meal-planning app? Use the files for what customers have told us.",
   quick_brainstorm: "Should we offer a yearly plan at a discount? Use the files for what customers pay today.",
-  custom: "Describe the work in your own words. The coordinator will propose the steps and the team.",
+  custom: "Describe the work in your own words. The crew will propose the steps and the team.",
 };
 const OUTCOMES: Record<string, string> = {
   writing: "Draft, edit, and fact-check an article, newsletter, report, or other piece of writing.",
@@ -43,7 +44,7 @@ const WEB_BY_DEFAULT: string[] = [];
 
 export type RestartDraft = { from: string; name: string; brief: string; sources: Source[] };
 
-export default function NewProject({ onOpen, onBack, restart, next, nextName }: { onOpen: (name: string) => void; onBack: () => void; restart?: RestartDraft; next?: NextDraft; nextName?: string }) {
+export default function NewProject({ onOpen, onBack, restart, next, nextName, taken = [] }: { onOpen: (name: string) => void; onBack: () => void; restart?: RestartDraft; next?: NextDraft; nextName?: string; taken?: string[] }) {
   const providers = useProviders();
   const [cases, setCases] = useState<UseCase[]>([]);
   const [kind, setKind] = useState(next?.kind ?? "writing");
@@ -51,12 +52,21 @@ export default function NewProject({ onOpen, onBack, restart, next, nextName }: 
   const [brief, setBrief] = useState(restart?.brief ?? next?.brief ?? "");
   const [rules, setRules] = useState("");
   const [inherited, setInherited] = useState<Source[]>(restart?.sources ?? []);
+  // What the app found about each added path (name, size, folder or not), by the path as given.
+  const [pathInfo, setPathInfo] = useState<Record<string, PathInfo>>({});
   const [staged, setStaged] = useState<Staged[]>(next ? [{ kind: "results", from: next.from, stages: next.stages }] : []);
   const [author, setAuthor] = useState<Choice>(["R12", DEFAULT_WRITING, "medium"]);
   const [reviewer, setReviewer] = useState<Choice | null>(null);
   const [auto, setAuto] = useState<Choice | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [createErr, setCreateErr] = useState("");
+  // Set when the brief or name held something shaped like a key. Only that fact is kept, never the text.
+  const [keyHit, setKeyHit] = useState("");
+  const [connected, setConnected] = useState(false);
+  const [moveErr, setMoveErr] = useState("");
+  const createErrRef = useRef<HTMLParagraphElement>(null);
+  const keyHitRef = useRef<HTMLDivElement>(null);
   const [done, setDone] = useState<Added | null>(null);
   const [recs, setRecs] = useState<Recommended[]>([]);
   const [skills, setSkills] = useState<string[]>([]);
@@ -65,14 +75,22 @@ export default function NewProject({ onOpen, onBack, restart, next, nextName }: 
   const [proto, setProto] = useState(false);
   const [codeOk, setCodeOk] = useState(false);
   useEffect(() => { api.call<boolean>("running_code_allowed").then(setCodeOk).catch(() => setCodeOk(false)); }, []);
-  const [step, setStep] = useState(next ? 1 : 0);
+  // Which option's small dialog is open (DESIGN_SPEC.md §10.1, New project).
+  const [opt, setOpt] = useState<"" | "files" | "rules" | "crew" | "web" | "models">("");
   const [named, setNamed] = useState(!!(restart?.name ?? nextName));
   const [mode, setMode] = useState<MaterialMode>("files");
-  const screen = useRef<HTMLDivElement>(null);
   // On the outcome step, focus goes back to the card already chosen, so going back never loses the place.
-  useEffect(() => { screen.current?.querySelector<HTMLElement>(step === 0 ? '[role="radio"][aria-checked="true"]' : 'h2')?.focus(); }, [step, cases.length > 0]);
-  // Until the person names the project, the name follows the outcome and the first words of the brief.
-  useEffect(() => { if (!named) setName(suggestName(kind, brief)); }, [kind, brief, named]);
+  // Until the person names the project, the name follows the outcome and the first words of the brief, and never repeats a project that exists.
+  useEffect(() => { if (!named) setName(uniqueName(suggestName(kind, brief), taken, "-")); }, [kind, brief, named, taken.join("\n")]);
+  // A create error is read at the button that caused it.
+  useEffect(() => { if (createErr) createErrRef.current?.focus(); }, [createErr]);
+  useEffect(() => { if (keyHit) keyHitRef.current?.focus(); }, [keyHit]);
+  // "Connected to OpenRouter" shows for a few seconds, then the card goes.
+  useEffect(() => {
+    if (!connected) return;
+    const t = setTimeout(() => setConnected(false), CONNECTED_MS);
+    return () => clearTimeout(t);
+  }, [connected]);
 
   useEffect(() => {
     if (!providers.length || providers.some(([id]) => id === author[0])) return;
@@ -97,21 +115,33 @@ export default function NewProject({ onOpen, onBack, restart, next, nextName }: 
   const canSearch = providers.some(([id]) => id === "R12" || id === "R3" || id === "R5");
   const wantsFiles = chosen?.wants_files ?? true;
   const rev: Choice | null = reviewer ?? auto;
+  const keyFound = keyHit ? (findKeyShape(brief) ?? findKeyShape(name, true)) : null;
   const nameOk = /^[A-Za-z0-9_-]{1,64}$/.test(name);
-  const addPaths = (p: string[]) => setStaged((s) => [...s, ...p.filter((v) => !s.some((x) => x.kind === "path" && x.value === v)).map((value) => ({ kind: "path" as const, value }))]);
+  const addPaths = (p: string[]) => {
+    const fresh = p.filter((v) => !staged.some((x) => x.kind === "path" && x.value === v));
+    setStaged((s) => [...s, ...p.filter((v) => !s.some((x) => x.kind === "path" && x.value === v)).map((value) => ({ kind: "path" as const, value }))]);
+    // The list shows each path by name and size once the app has looked; until then it shows the path as given.
+    if (fresh.length) api.call<PathInfo[]>("path_info", { paths: fresh }).then((info) => setPathInfo((m) => ({ ...m, ...Object.fromEntries(fresh.map((v, i) => [v, info[i]])) }))).catch(() => undefined);
+  };
   const addUrls = (u: string[]) => setStaged((s) => [...s, ...u.filter((v) => !s.some((x) => x.kind === "url" && x.value === v)).map((value) => ({ kind: "url" as const, value }))]);
   const addResults = (from: string, stages: string[]) => setStaged((s) => [...s, { kind: "results" as const, from, stages }]);
   const addFiles = (f: File[]) => setStaged((s) => [...s, ...f.map((file) => ({ kind: "file" as const, file }))]);
 
-  const create = async () => {
+  // `allowKeyShape` is "It isn't a key", for this one create only.
+  const create = async (allowKeyShape = false) => {
     setBusy(true);
     setErr("");
+    setCreateErr("");
+    setKeyHit("");
+    setMoveErr("");
     try {
-      if (restart) await api.call("create_project_from", { from: restart.from, name, brief, sourceIds: inherited.map((source) => source.id) });
-      else await api.call("create_project", { name, brief });
+      if (restart) await api.call("create_project_from", { from: restart.from, name, brief, sourceIds: inherited.map((source) => source.id), ...(allowKeyShape ? { allowKeyShape: true } : {}) });
+      else await api.call("create_project", allowKeyShape ? { name, brief, allowKeyShape: true } : { name, brief });
       if (rules.trim()) await api.call("set_exercise_rules", { text: rules });
     } catch (e) {
-      setErr(text(e));
+      const why = text(e);
+      if (isKeyInBrief(why)) setKeyHit(keyInBriefText(why));
+      else setCreateErr(why);
       setBusy(false);
       return;
     }
@@ -151,6 +181,35 @@ export default function NewProject({ onOpen, onBack, restart, next, nextName }: 
     setErr(planNote ? `The project was created, but ${planNote}.` : "");
   };
 
+  // Saves the key found in the brief (or the name) and takes it out of the field. The text goes only to save_key.
+  const moveKey = async () => {
+    const inBrief = findKeyShape(brief);
+    const found = inBrief ?? findKeyShape(name, true);
+    if (!found?.openrouter) return;
+    setBusy(true);
+    setMoveErr("");
+    try {
+      await api.call("save_key", { route: "R12", key: found.key });
+    } catch (e) {
+      setMoveErr(text(e));
+      setBusy(false);
+      return;
+    }
+    if (inBrief) setBrief(withoutKey(brief, found.key));
+    else { setNamed(false); setName(""); }
+    setKeyHit("");
+    setConnected(true);
+    setBusy(false);
+    window.dispatchEvent(new Event(KEYS_CHANGED));
+  };
+  const dropKey = () => {
+    const inBrief = findKeyShape(brief);
+    const found = inBrief ?? findKeyShape(name, true);
+    if (found && inBrief) setBrief(withoutKey(brief, found.key));
+    else if (found) { setNamed(false); setName(""); }
+    setKeyHit("");
+  };
+
   if (done) {
     return (
       <div className="home wizard">
@@ -165,146 +224,137 @@ export default function NewProject({ onOpen, onBack, restart, next, nextName }: 
   }
 
   const custom = kind === "custom";
-  const steps = custom ? ["Choose an outcome", "Your brief"] : ["Choose an outcome", "Your brief", "Customize the crew (optional)"];
   const detailsOk = nameOk && !!brief.trim();
   const outcomes = [...cases, { id: "custom", name: "Something else", promise: "Tell us the outcome. Your crew will suggest a plan.", steps: [], wants_files: true, team: [], owners: [] }];
-  const pick = (id: string) => { setKind(id); setStep(1); };
-  // Arrow keys move between outcomes without leaving the step; Enter or a click moves on.
-  const arrows = (e: KeyboardEvent<HTMLDivElement>) => {
-    const options = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
-    const at = choiceIndex(e.key, options.indexOf(e.target as HTMLButtonElement), options.length);
-    if (at < 0) return;
-    e.preventDefault();
-    setKind(outcomes[at].id);
-    options[at].focus();
-  };
+  const fileCount = staged.length + inherited.length;
+  const ready = detailsOk && providers.length > 0 && !!kind;
+  // What is missing, in words, or the promise that nothing runs yet.
+  const footLine = providers.length === 0 ? "Connect an AI service to continue." : !brief.trim() ? "Say what you want made to continue." : !nameOk ? "The project name needs fixing to continue." : "Nothing runs until you approve the plan.";
+  const options: { id: Exclude<typeof opt, "">; name: string; value: string }[] = [
+    { id: "files", name: "Files", value: fileCount ? `${fileCount} ${fileCount === 1 ? "file" : "files"}` : "none" },
+    { id: "rules", name: "Rules", value: rules.trim() ? "set" : "none" },
+    ...(custom ? [] : [
+      { id: "crew" as const, name: "Crew", value: `${chosen?.team.length ?? 0} roles${skills.length ? `, ${skills.length} ${skills.length === 1 ? "skill" : "skills"}` : ""}` },
+      { id: "web" as const, name: "Web research", value: !canSearch ? "needs a key" : webOn ? "on" : "off" },
+      { id: "models" as const, name: "Models", value: author[1].split("/").pop() ?? author[1] },
+    ]),
+  ];
+  const closeOpt = () => setOpt("");
+  const Done = () => <div className="dlg-foot"><span className="sp" /><button className="primary" data-autofocus onClick={closeOpt}>Done</button></div>;
 
   return (
-    <div className="home wizard">
-      <button className="link" disabled={busy} onClick={step === 0 ? onBack : () => setStep(step - 1)}>{step === 0 ? (restart ? "Back to the original project" : next ? `Back to ${next.from}` : "All projects") : "Back"}</button>
-      {next && <p className="notice restart-note">Continuing from <strong>{next.from}</strong>. {next.stages.length} {next.stages.length === 1 ? "result is" : "results are"} ready to use as sources, and the two projects will be linked.</p>}
-      {restart && <p className="notice restart-note">Starting over from <strong>{restart.from}</strong>. Your brief and {inherited.length} {inherited.length === 1 ? "source are" : "sources are"} ready to reuse. The original project stays unchanged.</p>}
-      <ol className="stepper" aria-label="Progress">
-        {steps.map((label, i) => (
-          <li key={label} className={i < step ? "past" : i === step ? "now" : ""} aria-current={i === step ? "step" : undefined}>
-            <span className="dot" aria-hidden="true">{i < step ? <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg> : i + 1}</span>{label}
-          </li>
-        ))}
-      </ol>
-
-      <div className="wizard-screen" key={step} ref={screen}>
-        {step === 0 && (
-          <>
-            <h2 className="screen-title compact" tabIndex={-1}>What would you like help with?</h2>
-            <p className="lede one-line">Pick one to start. You can change the plan before anything runs.</p>
-            <div className="cards outcomes" role="radiogroup" aria-label="Outcome" onKeyDown={arrows}>
-              {outcomes.map((c) => (
-                <button key={c.id} role="radio" aria-checked={kind === c.id} tabIndex={kind === c.id ? 0 : -1} className={`choice${kind === c.id ? " on" : ""}`} onClick={() => pick(c.id)}>
-                  <strong>{c.id === "proposal" ? "Proposal or product brief" : c.name}</strong>
-                  <span className="muted">{OUTCOMES[c.id] ?? c.promise}</span>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-
-        {step === 1 && (
-          <>
-            <h2 className="screen-title compact" tabIndex={-1}>Your brief</h2>
-            {providers.length === 0 && <ConnectKey />}
-            <label>What would you like to achieve?
-              <textarea rows={5} value={brief} onChange={(e) => setBrief(e.target.value)} placeholder={EXAMPLES[kind]} autoFocus />
-            </label>
-            <label>Project name
-              <input value={name} onChange={(e) => { setNamed(true); setName(e.target.value.replace(/\s+/g, "-")); }} placeholder="claims-newsletter" />
-            </label>
-            {name && !nameOk && <p className="field-error" role="alert">Use letters, numbers, - and _ only, up to 64 characters.</p>}
-            <h3>Rules (optional)</h3>
-            <p className="muted">Anything your crew must follow, such as a word limit or a required format. Rules come before everything else your crew is told.</p>
-            <textarea aria-label="Rules" rows={2} value={rules} maxLength={6000} onChange={(e) => setRules(e.target.value)} placeholder="Keep it under 800 words. Use British spelling. Cite a source for every number." />
-            <h3>Sources (optional)</h3>
-            {restart && <><p className="muted">These are saved copies from the original project, including source roles and warnings. Removing one here only leaves it out of the fresh project.</p><SourceList sources={inherited} locked={false} busy={busy} onRemove={(id) => setInherited((sources) => sources.filter((source) => source.id !== id))} /></>}
-            <p className="muted">{wantsFiles ? "Add reports, notes, or instructions for your crew to read and cite. You can add more later." : "Add any context that would help. You can also continue without files."}</p>
-            <AddMaterial onPaths={addPaths} onFiles={addFiles} onUrls={addUrls} onPick={addResults} current={name} disabled={busy} mode={mode} onMode={setMode} />
-            {staged.length > 0 && (
-              <ul className="plain staged">
-                {staged.map((f, i) => (
-                  <li key={i}>
-                    <span>{f.kind === "url" && <Chip tone="info">Web</Chip>}{f.kind === "results" && <Chip tone="info">Project</Chip>} {shown(f)}</span>
-                    <button className="ghost" onClick={() => setStaged(staged.filter((_, j) => j !== i))} aria-label={`Remove ${shown(f)}`}>Remove</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        )}
-
-        {step === 2 && !custom && (
-          <>
-            <h2 className="screen-title compact" tabIndex={-1}>Customize the crew</h2>
-            <p className="lede one-line">Writers make the work; checkers read it and raise problems for you to decide.</p>
-            <ul className="plain crew-compact">
-              {(chosen?.team ?? []).map((r) => (
-                <li key={r.role} title={r.does}>
-                  <strong>{r.label}</strong> <span className={`side ${r.side}`}>{r.side === "writing" ? "Writes" : "Checks"}</span>
-                </li>
-              ))}
-            </ul>
-            {recs.length > 0 && (
-              <section className="recommended" aria-label="Skills">
-                <h3>Skills</h3>
-                {recs.map((r) => (
-                  <label className="check rec" key={r.skill}>
-                    <input type="checkbox" checked={skills.includes(r.skill)} onChange={(e) => setSkills(e.target.checked ? [...skills, r.skill] : skills.filter((x) => x !== r.skill))} />
-                    <span><strong>{r.label ?? r.skill}</strong> <span className="muted">{r.why}</span></span>
-                  </label>
-                ))}
-              </section>
-            )}
-            <label className="check rec">
-              <input type="checkbox" disabled={!canSearch} checked={webOn && canSearch} onChange={(e) => setWeb(e.target.checked)} />
-              <span><strong>Web research</strong> <span className="muted">{canSearch ? (kind === "social_publishing" ? "Recommended for posts: first checks each platform's current character limits, image sizes and hashtag norms on the web. Needs a paid model and adds a small search fee." : WEB_HELP) : "Needs an OpenRouter, Anthropic or OpenAI key. Until then, add web page addresses as sources."}</span></span>
-            </label>
-            {POLISHABLE.includes(kind) && (
-              <label className="check rec">
-                <input type="checkbox" checked={polish} onChange={(e) => setPolish(e.target.checked)} />
-                <span><strong>Polish the finished text</strong> <span className="muted">{POLISH_HELP}</span></span>
-              </label>
-            )}
-            {codeOk && PROTOTYPABLE.includes(kind) && (
-              <label className="check rec">
-                <input type="checkbox" checked={proto} onChange={(e) => setProto(e.target.checked)} />
-                <span><strong>Add a clickable prototype</strong> <span className="muted">One more step builds a few clickable screens of what is recommended, with sample data, to try in SproutCrew’s own preview. If your sources include screenshots, it shows a before and an after. You review the code before it is used.</span></span>
-              </label>
-            )}
-            <details className="customize-models">
-              <summary>Customize models <span className="meta">Writing: {author[1]} · Checking: {rev?.[1] ?? "automatic"}</span></summary>
-              <ProviderPick label="Writing side" side="writing" value={author} onChange={setAuthor} />
-              {rev && <ProviderPick label="Checking side" side="checking" value={rev} onChange={setReviewer} />}
-              {reviewer && <div className="actions tight"><button className="ghost" onClick={() => setReviewer(null)}>Use the automatic checking side</button></div>}
-              <p className="muted">Checking works best on a model from a different maker than writing. After the project exists you can choose a model for each step.</p>
-            </details>
-          </>
-        )}
+    <div className="composer-page" onKeyDown={(e) => { if (e.metaKey && e.key === "Enter" && ready && !busy) { e.preventDefault(); void create(); } }}>
+      <div className="composer-body">
+      <button className="link" disabled={busy} onClick={onBack}>{restart ? "Back to the original project" : next ? `Back to ${next.from}` : "All projects"}</button>
+      {next && <p className="note">Continuing from <strong>{next.from}</strong>. {next.stages.length} {next.stages.length === 1 ? "result is" : "results are"} ready to use as sources, and the two projects will be linked.</p>}
+      {restart && <p className="note">Starting over from <strong>{restart.from}</strong>. Your brief and {inherited.length} {inherited.length === 1 ? "source are" : "sources are"} ready to reuse. The original project stays unchanged.</p>}
+      {(providers.length === 0 || connected) && <section className="composer-connect" aria-label="Connect an AI service"><ConnectKey connected={connected} onConnected={() => setConnected(true)} /></section>}
+      <label className="composer-field">It should make
+        <select value={kind} onChange={(e) => setKind(e.target.value)}>
+          {outcomes.map((c) => <option key={c.id} value={c.id}>{c.id === "proposal" ? "Proposal or product brief" : c.name}</option>)}
+        </select>
+      </label>
+      <p className="muted composer-promise">{OUTCOMES[kind] ?? chosen?.promise ?? ""}</p>
+      <label className="composer-field">The brief
+        <textarea className="composer-brief" rows={7} value={brief} onChange={(e) => { setBrief(e.target.value); setKeyHit(""); }} placeholder={EXAMPLES[kind]} autoFocus />
+      </label>
+      <label className="composer-field">Project name
+        <input className="mono composer-name" value={name} onChange={(e) => { setNamed(true); setKeyHit(""); setName(e.target.value.replace(/\s+/g, "-")); }} placeholder="claims-newsletter" />
+      </label>
+      {name && !nameOk && <p className="field-error" role="alert">Use letters, numbers, - and _ only, up to 64 characters.</p>}
+      <div className="composer-options" role="group" aria-label="Options">
+        {options.map((o) => <button key={o.id} className="opt-btn" onClick={() => setOpt(o.id)}><span className="opt-name">{o.name}</span> <span className="opt-value">{o.value}</span></button>)}
+      </div>
+      {err && <p className="notice error" role="alert">{err}</p>}
       </div>
 
-      {err && <p className="notice error" role="alert">{err}</p>}
-      {step >= 1 && (
-        <div className="wizard-footer">
-          <span className="muted" role="status">{!brief.trim() ? "Say what you want made to continue." : !nameOk ? "The project name needs fixing to continue." : "Nothing runs until you approve the plan."}</span>
-          <div className="actions">
-            <button className="ghost" disabled={busy} onClick={onBack}>Cancel</button>
-            {step === 1 && !custom && <button disabled={busy || !detailsOk} onClick={() => setStep(2)}>Customize the crew</button>}
-            <button className="primary big" disabled={busy || !detailsOk} onClick={create}>{busy ? "Creating" : restart ? "Start fresh project" : "Create project"}</button>
+      {opt === "files" && <Dialog title="Files" onClose={closeOpt}>
+        {restart && <><p className="muted">These are saved copies from the original project, including source roles and warnings. Removing one here only leaves it out of the fresh project.</p><SourceList sources={inherited} locked={false} busy={busy} onRemove={(id) => setInherited((sources) => sources.filter((source) => source.id !== id))} /></>}
+        <p className="muted">{wantsFiles ? "Add reports, notes, or instructions for your crew to read and cite, such as the dates, prices and names it should use. You can add more later." : "Add any context that would help. You can also continue without files."}</p>
+        <AddMaterial onPaths={addPaths} onFiles={addFiles} onUrls={addUrls} onPick={addResults} current={name} disabled={busy} mode={mode} onMode={setMode} />
+        <p className="added-count" role="status" aria-live="polite">{addedLine(staged.map((f) => ({ kind: f.kind, folder: f.kind === "path" && !!pathInfo[f.value]?.is_dir })))}</p>
+        {staged.length > 0 && (
+          <ul className="plain staged" aria-label="Files added">
+            {staged.map((f, i) => (
+              <li key={i}>
+                <span title={f.kind === "path" ? f.value : undefined}>{f.kind === "url" && <Chip tone="info">Web</Chip>}{f.kind === "results" && <Chip tone="info">Project</Chip>} {f.kind === "path" ? pathLabel(f.value, pathInfo[f.value]) : f.kind === "file" ? `${f.file.name} · ${sizeLabel(f.file.size)}` : shown(f)}</span>
+                <button className="ghost" onClick={() => setStaged(staged.filter((_, j) => j !== i))} aria-label={`Leave out ${shown(f)}`}>Leave out</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <Done />
+      </Dialog>}
+      {opt === "rules" && <Dialog title="Rules" onClose={closeOpt}>
+        <p className="muted">Anything your crew must follow, such as a word limit or a required format. Rules come before everything else your crew is told.</p>
+        <textarea aria-label="Rules" rows={4} value={rules} maxLength={6000} onChange={(e) => setRules(e.target.value)} placeholder="Keep it under 800 words. Use British spelling. Cite a source for every number." />
+        <Done />
+      </Dialog>}
+      {opt === "crew" && <Dialog title="Crew" onClose={closeOpt}>
+        <p className="muted">Writers make the work; a second check reads it and raises problems for you to decide.</p>
+        <ul className="plain crew-compact">
+          {(chosen?.team ?? []).map((r) => <li key={r.role} title={r.does}><strong>{r.label}</strong> <span className={`side ${r.side}`}>{r.side === "writing" ? "Writes" : "Checks"}</span></li>)}
+        </ul>
+        {recs.map((r) => (
+          <label className="check rec" key={r.skill}>
+            <input type="checkbox" checked={skills.includes(r.skill)} onChange={(e) => setSkills(e.target.checked ? [...skills, r.skill] : skills.filter((x) => x !== r.skill))} />
+            <span><strong>{r.label ?? r.skill}</strong> <span className="muted">{r.why}</span></span>
+          </label>
+        ))}
+        {POLISHABLE.includes(kind) && <label className="check rec"><input type="checkbox" checked={polish} onChange={(e) => setPolish(e.target.checked)} /><span><strong>Polish the finished text</strong> <span className="muted">{POLISH_HELP}</span></span></label>}
+        {codeOk && PROTOTYPABLE.includes(kind) && <label className="check rec"><input type="checkbox" checked={proto} onChange={(e) => setProto(e.target.checked)} /><span><strong>Add a clickable prototype</strong> <span className="muted">One more step builds a few clickable screens of what is recommended, with sample data, to try in SproutCrew’s own preview. You review the code before it is used.</span></span></label>}
+        <Done />
+      </Dialog>}
+      {opt === "web" && <Dialog title="Web research" onClose={closeOpt}>
+        <label className="check rec">
+          <input type="checkbox" disabled={!canSearch} checked={webOn && canSearch} onChange={(e) => setWeb(e.target.checked)} />
+          <span><strong>Search the web first</strong> <span className="muted">{canSearch ? (kind === "social_publishing" ? "Recommended for posts: first checks each platform's current character limits, image sizes and hashtag norms on the web. Needs a paid model and adds a small search fee." : WEB_HELP) : "Needs an OpenRouter, Anthropic or OpenAI key. Until then, add web page addresses as sources."}</span></span>
+        </label>
+        <Done />
+      </Dialog>}
+      {opt === "models" && <Dialog title="Models" onClose={closeOpt}>
+        <ProviderPick label="Writing side" side="writing" value={author} onChange={setAuthor} />
+        {rev && <ProviderPick label="Checking side" side="checking" value={rev} onChange={setReviewer} />}
+        {reviewer && <div className="actions tight"><button className="ghost" onClick={() => setReviewer(null)}>Use the automatic checking side</button></div>}
+        <p className="muted">Checking works best on a model from a different maker than writing. After the project exists you can choose a model for each step.</p>
+        <Done />
+      </Dialog>}
+
+      <div className="composer-foot">
+        {createErr && <p ref={createErrRef} className="notice error" role="alert" tabIndex={-1}>{createErr}</p>}
+        {keyHit && (
+          <div ref={keyHitRef} className="notice error key-in-brief" role="alert" tabIndex={-1}>
+            <p>{keyHit}</p>
+            {moveErr && <p className="field-error">{moveErr}</p>}
+            {keyFound ? (
+              <div className="actions tight">
+                {keyFound.openrouter ? <button disabled={busy} onClick={() => void moveKey()}>Move it there</button> : <button disabled={busy} onClick={dropKey}>Remove it</button>}
+                <button className="ghost" disabled={busy} onClick={() => void create(true)}>It isn’t a key</button>
+              </div>
+            ) : <p className="muted">Take the key out of the brief by hand, then press Create.</p>}
           </div>
+        )}
+        <div className="composer-foot-row">
+          <span className="muted" role="status">{footLine}</span>
+          <button disabled={busy} onClick={onBack}>Cancel</button>
+          <button className="primary" disabled={busy || !ready} onClick={() => void create()}>{busy ? "Creating" : restart ? "Start fresh project" : "Create project"} {!busy && ready && <kbd>⌘⏎</kbd>}</button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
+/** A tick and "Connected to OpenRouter", read out by screen readers. */
+function ConnectedNote() {
+  return (
+    <p className="connected-note" role="status">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg> <strong>Connected to OpenRouter</strong>
+    </p>
+  );
+}
+
 /** Lets a person with no key connect OpenRouter here, without leaving the new project. The key goes to the Keychain. */
-function ConnectKey() {
+function ConnectKey({ connected, onConnected }: { connected: boolean; onConnected: () => void }) {
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -312,10 +362,15 @@ function ConnectKey() {
     setBusy(true);
     setErr("");
     api.call("save_key", { route: "R12", key })
-      .then(() => { setKey(""); window.dispatchEvent(new Event(KEYS_CHANGED)); })
+      .then(() => { setKey(""); onConnected(); window.dispatchEvent(new Event(KEYS_CHANGED)); })
       .catch((e) => setErr(text(e)))
       .finally(() => setBusy(false));
   };
+  if (connected) {
+    return (
+      <div className="notice connect-key connected"><ConnectedNote /></div>
+    );
+  }
   return (
     <div className="notice connect-key">
       <p><strong>Connect an AI service to run this project.</strong> Paste an OpenRouter key. It is kept in this Mac’s Keychain.</p>

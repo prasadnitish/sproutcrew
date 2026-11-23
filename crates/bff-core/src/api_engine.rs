@@ -539,7 +539,7 @@ impl ApiEngine {
                     fail(
                         req.step,
                         req.model,
-                        format!("refused: this project's plan says AI providers keep nothing, and {what} cannot promise that, so nothing was sent. Move the step to OpenRouter, or allow providers to keep requests on the review board"),
+                        format!("refused: this project's plan says AI providers keep nothing, and {what} cannot promise that, so nothing was sent. Move the step to OpenRouter, or allow providers to keep requests in the plan"),
                     ),
                     None,
                 )

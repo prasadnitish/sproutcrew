@@ -11,6 +11,8 @@ const In = ({ c }: { c: Inline[] }) => (
         case "em": return <em key={k}><In c={i.c} /></em>;
         // A link is shown as text with its address on hover. Clicking it must not move this window.
         case "link": return <span key={k} className="ext" title={i.href}>{i.v}</span>;
+        // A missing detail is shown in place, so the person sees where the draft needs them.
+        case "needed": return <mark key={k} className="needed" title="A detail only you can supply">[to confirm: {i.v}]</mark>;
       }
     })}
   </>
@@ -51,7 +53,7 @@ export default function Markdown({ text, skipTitle }: { text: string; skipTitle?
     const b = parse(text);
     // A result that starts by repeating the step's own title does not need to say it twice.
     const first = b[0];
-    const plain = (c: Inline[]): string => c.map((i) => (i.t === "text" || i.t === "code" ? i.v : i.t === "link" ? i.v : plain(i.c))).join("").trim().toLowerCase();
+    const plain = (c: Inline[]): string => c.map((i) => (i.t === "text" || i.t === "code" || i.t === "needed" ? i.v : i.t === "link" ? i.v : plain(i.c))).join("").trim().toLowerCase();
     return skipTitle && first && first.t === "h" && first.n === 1 && plain(first.c) === skipTitle.trim().toLowerCase() ? b.slice(1) : b;
   }, [text, skipTitle]);
   return <div className="doc-text"><Blocks b={blocks} /></div>;

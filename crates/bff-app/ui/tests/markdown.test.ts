@@ -69,3 +69,10 @@ test("empty and odd input does not throw", () => {
   parse("*".repeat(50_000));
   parse("a\n".repeat(20_000));
 });
+
+test("a marker for a missing detail becomes its own piece, with a bracket inside it kept and a line break closed up", () => {
+  const [p] = parse("The price is [NEEDED: price [per week]] and starts [needed: the\nstart date] soon.") as any[];
+  assert.deepEqual(p.c.map((i: Inline) => [i.t, (i as any).v]), [["text", "The price is "], ["needed", "price [per week]"], ["text", " and starts "], ["needed", "the start date"], ["text", " soon."]]);
+  const [q] = parse("A [NEEDED: x never closes and `code` stays") as any[];
+  assert.ok(q.c.every((i: Inline) => i.t !== "needed"), "an unclosed marker is only text");
+});

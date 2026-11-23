@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, TemplateSaved } from "./api";
-import { Ctx, text } from "./ui";
+import { Confirm, Ctx, Section, text, useConfirm } from "./ui";
 
 type Listed = { id: string; template: TemplateSaved };
 
@@ -18,9 +18,10 @@ export function lookLine(t: TemplateSaved): string {
 
 /** The project's template: what the person kept from one of their files, a starter, or a saved template. Each part is
  *  shown and can be changed: the look (for the client files), the sections (the steps use them as headings, and
- *  the checker checks for them) and the writing style. */
+ *  the second check looks for them) and the writing style. */
 export default function TemplatePanel({ ctx }: { ctx: Ctx }) {
   const t = ctx.s.look ?? null;
+  const [ask, asking] = useConfirm();
   const [lists, setLists] = useState<{ starters: Listed[]; shared: Listed[] }>({ starters: [], shared: [] });
   const [from, setFrom] = useState("");
   const [preview, setPreview] = useState<TemplateSaved | null>(null);
@@ -41,6 +42,7 @@ export default function TemplatePanel({ ctx }: { ctx: Ctx }) {
   };
   return (
     <section className="sheet template-panel" aria-label="Template">
+      {asking}
       <header className="sheet-head"><div><h2>Template</h2><p className="muted">Make the work look and read like your organisation's: the look of the files, the sections, and the writing style. Each part is yours to change. The steps are told the sections and the style on their next run; the plan's approval is not affected.</p></div></header>
       {t ? (
         <div className="template-now">
@@ -68,7 +70,7 @@ export default function TemplatePanel({ ctx }: { ctx: Ctx }) {
               <button className="ghost" onClick={() => setEdit({ name: t.name, outline: t.outline.join("\n"), style: t.style })}>Edit sections and style</button>
               {t.look && <button className="ghost" disabled={!!ctx.busy} onClick={() => act(() => api.call("edit_template", { name: t.name, outline: t.outline, style: t.style, keepLook: false }), "The files use SproutCrew's look again.")}>Use SproutCrew's look</button>}
               <button className="ghost" disabled={!!ctx.busy} onClick={() => act(() => api.call("share_template"), "Saved for all your projects. Find it under Memory.")}>Save for all projects</button>
-              <button className="ghost" disabled={!!ctx.busy} onClick={() => act(() => api.call("clear_template_look"), "No template now.")}>Remove</button>
+              <button className="ghost" disabled={!!ctx.busy} onClick={() => ask({ title: `Remove ${t.name}?`, line: "This project's files go back to SproutCrew's look and sections. A copy saved for every project stays in Memory.", action: "Remove", run: () => void act(() => api.call("clear_template_look"), "No template now.") })}>Remove</button>
             </div>
           )}
         </div>
@@ -114,23 +116,25 @@ export default function TemplatePanel({ ctx }: { ctx: Ctx }) {
 export function SharedTemplates() {
   const [list, setList] = useState<Listed[] | null>(null);
   const [err, setErr] = useState("");
+  const [asking, setAsking] = useState<Listed | null>(null);
   const load = () => api.call<{ shared: Listed[] }>("templates").then((x) => setList(x.shared)).catch((e) => setErr(text(e)));
   useEffect(() => { void load(); }, []);
   return (
-    <section className="sheet" aria-label="Saved templates">
-      <h2>Templates for every project</h2>
-      <p className="muted">Saved from a project with "Save for all projects". Use one from any project under Sources, Template.</p>
+    <Section title="Templates" value={list ? `${list.length} saved` : "reading"}>
+      <p className="muted">Saved from a project with "Save for every project". Use one from any project under Sources, Template.</p>
       {list && list.length === 0 && <p className="empty-note">None saved yet.</p>}
       {list && list.length > 0 && (
         <ul className="notes">{list.map((s) => (
           <li key={s.id}>
             <span className="note-text"><strong>{s.template.name}</strong> <span className="muted">{lookLine(s.template)}; {s.template.outline.length} sections{s.template.style ? "; a style note" : ""}</span></span>
             <span />
-            <button className="ghost" onClick={() => api.call("delete_shared_template", { id: s.id }).then(load).catch((e) => setErr(text(e)))}>Delete</button>
+            <button className="ghost" onClick={() => setAsking(s)}>Delete</button>
           </li>
         ))}</ul>
       )}
       {err && <p className="field-error" role="alert">{err}</p>}
-    </section>
+      {asking && <Confirm title={`Delete ${asking.template.name}?`} line="It leaves the list for every project. Projects that already use it keep their copy." action="Delete"
+        onKeep={() => setAsking(null)} onConfirm={() => { const id = asking.id; setAsking(null); api.call("delete_shared_template", { id }).then(load).catch((e) => setErr(text(e))); }} />}
+    </Section>
   );
 }

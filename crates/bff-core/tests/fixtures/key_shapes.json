@@ -1,0 +1,97 @@
+[
+ {
+  "text": "Write about bread.",
+  "found": null
+ },
+ {
+  "text": "Our secret: slow-fermented dough. A token of thanks: every tenth loaf is free.",
+  "found": null
+ },
+ {
+  "text": "password = hunter2hunter2 and api_key: abcdefgh1234",
+  "found": null
+ },
+ {
+  "text": "My key is {OPENROUTER_KEY_64} thanks",
+  "found": "{OPENROUTER_KEY_64}"
+ },
+ {
+  "text": "OPENROUTER_API_KEY={OPENROUTER_KEY_64}",
+  "found": "{OPENROUTER_KEY_64}"
+ },
+ {
+  "text": "export KEY=\"{OPENROUTER_KEY_64}\";",
+  "found": "{OPENROUTER_KEY_64}"
+ },
+ {
+  "text": "(\"{OPENROUTER_KEY_64}\")",
+  "found": "{OPENROUTER_KEY_64}"
+ },
+ {
+  "text": "sk-ant-api03-a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+  "found": "sk-ant-api03-a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+ },
+ {
+  "text": "token ghp_A1b2C3d4E5A1b2C3d4E5A1b2C3d4E5A1b2C3d4E5",
+  "found": "ghp_A1b2C3d4E5A1b2C3d4E5A1b2C3d4E5A1b2C3d4E5"
+ },
+ {
+  "text": "hook xoxb-12345678901-abcdefghijkl",
+  "found": "xoxb-12345678901-abcdefghijkl"
+ },
+ {
+  "text": "aws AKIAABCDEFGHIJKLMNOP",
+  "found": "AKIAABCDEFGHIJKLMNOP"
+ },
+ {
+  "text": "google AIzaSyA1b2C3d4E5A1b2C3d4E5A1b2C3d4E5xyz",
+  "found": "AIzaSyA1b2C3d4E5A1b2C3d4E5A1b2C3d4E5xyz"
+ },
+ {
+  "text": "jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdef",
+  "found": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdef"
+ },
+ {
+  "text": "long mixed Zk9qZk9qZk9qZk9qZk9qZk9qZk9qZk9qZk9qZk9q",
+  "found": "Zk9qZk9qZk9qZk9qZk9qZk9qZk9qZk9qZk9qZk9q"
+ },
+ {
+  "text": "Authorization: Bearer abcdefghij1234567890zz",
+  "found": "abcdefghij1234567890zz"
+ },
+ {
+  "text": "Authorization: Bearer your-token-goes-here-please",
+  "found": null
+ },
+ {
+  "text": "Authorization: Bearer short",
+  "found": null
+ },
+ {
+  "text": "an id 123e4567-e89b-12d3-a456-426614174000 and a hash abababababababababababababababab",
+  "found": null
+ },
+ {
+  "text": "mail pat.lee@example.com or see /Users/pat/Documents/plan.md",
+  "found": null
+ },
+ {
+  "text": "700-word-newsletter-product-leaders",
+  "as": "name",
+  "found": null
+ },
+ {
+  "text": "bakery-newsletter-november-2026-v2",
+  "as": "name",
+  "found": null
+ },
+ {
+  "text": "{OPENROUTER_KEY_48}",
+  "as": "name",
+  "found": "{OPENROUTER_KEY_48}"
+ },
+ {
+  "text": "700-word-newsletter-product-leaders",
+  "found": "700-word-newsletter-product-leaders"
+ }
+]

@@ -145,6 +145,32 @@ pub fn store(dir: &Path, saved: &Saved) -> Result<(), String> {
     std::fs::rename(&tmp, dir.join(FILE)).map_err(|e| e.to_string())
 }
 
+/// A failed fetch is not tried again for this long, so a plan that asks during an outage answers at once.
+pub const FAILURE_MEMORY_SECS: u64 = 30;
+
+/// One list fetch at a time, whoever asks. It holds when the last fetch failed, if it did.
+static FETCHING: std::sync::Mutex<Option<u64>> = std::sync::Mutex::new(None);
+
+/// A list no older than a day: the saved one, or the one `fetch` gets and saves. Callers that arrive together
+/// share one fetch; each that waited finds what the first saved and does not fetch again. `None` when the list
+/// is missing or old and the fetch failed, or failed within the last [`FAILURE_MEMORY_SECS`].
+pub fn ensure(dir: &Path, now: u64, fetch: impl FnOnce(u64) -> Option<Saved>) -> Option<Saved> {
+    let mut failed_at = FETCHING.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(saved) = load(dir).filter(|s| !s.stale(now)) {
+        return Some(saved);
+    }
+    if failed_at.is_some_and(|t| now >= t && now - t < FAILURE_MEMORY_SECS) {
+        return None;
+    }
+    let Some(fresh) = fetch(now) else {
+        *failed_at = Some(now);
+        return None;
+    };
+    *failed_at = None;
+    let _ = store(dir, &fresh);
+    Some(fresh)
+}
+
 /// What the picker shows when no list has ever been saved and OpenRouter cannot be reached: the defaults and
 /// the free router, all with unknown prices.
 pub fn offline() -> Vec<Model> {
@@ -270,6 +296,105 @@ mod tests {
         );
         std::fs::write(dir.join(FILE), b"{not json").unwrap();
         assert!(load(&dir).is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// `ensure` keeps one process-wide failure memory, so the tests that use it take turns.
+    static TAKE_TURNS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("catalog-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn callers_that_arrive_together_share_one_fetch() {
+        let _turn = TAKE_TURNS.lock().unwrap_or_else(|e| e.into_inner());
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = scratch("shared");
+        let fetches = AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            for _ in 0..4 {
+                s.spawn(|| {
+                    let got = ensure(&dir, 1_000, |t| {
+                        fetches.fetch_add(1, Ordering::SeqCst);
+                        std::thread::sleep(std::time::Duration::from_millis(60));
+                        Some(Saved {
+                            fetched_at: t,
+                            models: parse(&list()),
+                        })
+                    });
+                    assert!(got.is_some_and(|g| !g.models.is_empty()));
+                });
+            }
+        });
+        assert_eq!(
+            fetches.load(Ordering::SeqCst),
+            1,
+            "the others wait and read what the first saved"
+        );
+        assert!(load(&dir).is_some());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_fetch_gives_nothing_and_a_fresh_saved_list_is_not_fetched_again() {
+        let _turn = TAKE_TURNS.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch("failed");
+        assert!(ensure(&dir, 100_000_000, |_| None).is_none());
+        let saved = Saved {
+            fetched_at: 1_000,
+            models: parse(&list()),
+        };
+        store(&dir, &saved).unwrap();
+        let got = ensure(&dir, 1_000 + MAX_AGE_SECS, |_| {
+            panic!("a fresh list needs no fetch")
+        });
+        assert_eq!(got, Some(saved));
+        let stale = ensure(
+            &dir,
+            100_000_000 + FAILURE_MEMORY_SECS + MAX_AGE_SECS + 1,
+            |t| {
+                Some(Saved {
+                    fetched_at: t,
+                    models: parse(&list()),
+                })
+            },
+        );
+        assert_eq!(
+            stale.unwrap().fetched_at,
+            100_000_000 + FAILURE_MEMORY_SECS + MAX_AGE_SECS + 1
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_fetch_is_remembered_for_half_a_minute_and_then_tried_again() {
+        let _turn = TAKE_TURNS.lock().unwrap_or_else(|e| e.into_inner());
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = scratch("remembered");
+        let tries = AtomicUsize::new(0);
+        let t0 = 200_000_000;
+        let down = |_| {
+            tries.fetch_add(1, Ordering::SeqCst);
+            None
+        };
+        assert!(ensure(&dir, t0, down).is_none());
+        assert!(ensure(&dir, t0 + FAILURE_MEMORY_SECS - 1, down).is_none());
+        assert_eq!(
+            tries.load(Ordering::SeqCst),
+            1,
+            "the second ask did not fetch"
+        );
+        let back = ensure(&dir, t0 + FAILURE_MEMORY_SECS, |t| {
+            Some(Saved {
+                fetched_at: t,
+                models: parse(&list()),
+            })
+        });
+        assert!(back.is_some(), "after the window the fetch is tried again");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

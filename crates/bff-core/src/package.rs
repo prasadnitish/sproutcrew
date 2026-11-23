@@ -254,6 +254,150 @@ pub fn final_deck(plan: &crate::plan::Plan, artifacts: &[Value]) -> Option<Strin
         .map(|id| id.to_string())
 }
 
+/// The most slides, and the most points on one, of a deck made from a document.
+const DECK_SLIDES: usize = 12;
+const DECK_POINTS: usize = 5;
+const POINT_CHARS: usize = 160;
+
+/// A paragraph or list item as one slide point: its first sentence, without the closing full stop, and cut at a
+/// word when it is long and has no formatting a cut could break.
+fn slide_point(text: &str) -> Option<String> {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let chars: Vec<char> = flat.chars().collect();
+    // A sentence ends at . ! or ? followed by a space and a capital, a digit, a quote, or the end. "e.g. in" and
+    // "Dr. Smith" do not end one.
+    const ABBREVIATIONS: [&str; 10] = [
+        "e.g", "i.e", "vs", "etc", "dr", "mr", "mrs", "ms", "no", "inc",
+    ];
+    let mut end = chars.len();
+    for (i, c) in chars.iter().enumerate() {
+        if !matches!(c, '.' | '!' | '?') {
+            continue;
+        }
+        let next = chars.get(i + 1);
+        if next.is_some_and(|n| *n != ' ') {
+            continue;
+        }
+        let after = chars.get(i + 2);
+        if after.is_some_and(|a| a.is_lowercase()) {
+            continue;
+        }
+        let word: String = chars[..i]
+            .iter()
+            .rev()
+            .take_while(|c| !c.is_whitespace())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        if *c == '.' && ABBREVIATIONS.contains(&word.to_lowercase().as_str()) {
+            continue;
+        }
+        end = i + 1;
+        break;
+    }
+    let mut point: String = chars[..end].iter().collect();
+    if let Some(p) = point.strip_suffix('.') {
+        point = p.to_string();
+    }
+    if point.chars().count() > POINT_CHARS && !point.contains(['*', '_', '`', '[', ']', '<']) {
+        let cut: String = point.chars().take(POINT_CHARS - 3).collect();
+        let at = cut.rfind(' ').unwrap_or(cut.len());
+        point = format!("{}…", cut[..at].trim_end_matches([',', ';', ':', ' ']));
+    }
+    let point = point.trim().to_string();
+    (!point.is_empty()).then_some(point)
+}
+
+/// A short deck from a document: its title, then a slide for each `##` section (twelve at most) with up to five
+/// points, each the first sentence of a paragraph or list item. Tables, code, and the notes for the team are not
+/// points. A document with no sections gets one "Summary" slide from its opening.
+pub fn deck_from_document(md: &str) -> String {
+    let (md, _) = crate::clientfiles::strip_internal(md);
+    let mut title: Option<String> = None;
+    // The opening before the first section, then each section's title and points.
+    let mut slides: Vec<(String, Vec<String>)> = vec![(String::new(), vec![])];
+    let mut buffer: Vec<String> = vec![];
+    let mut fence: Option<char> = None;
+    fn flush(buffer: &mut Vec<String>, slides: &mut [(String, Vec<String>)]) {
+        let text = buffer.join(" ");
+        buffer.clear();
+        let points = &mut slides.last_mut().expect("a slide").1;
+        if points.len() < DECK_POINTS {
+            points.extend(slide_point(&text));
+        }
+    }
+    for raw in md.lines() {
+        let line = raw.trim();
+        let opens = ['`', '~']
+            .into_iter()
+            .find(|c| line.starts_with(&c.to_string().repeat(3)));
+        match (fence, opens) {
+            (None, Some(c)) => {
+                flush(&mut buffer, &mut slides);
+                fence = Some(c);
+                continue;
+            }
+            (Some(f), Some(c)) if f == c => {
+                fence = None;
+                continue;
+            }
+            (Some(_), _) => continue,
+            _ => {}
+        }
+        if let Some((level, text)) = crate::clientfiles::heading_level(raw) {
+            flush(&mut buffer, &mut slides);
+            match level {
+                1 if title.is_none() && slides.len() == 1 => title = Some(text.to_string()),
+                1 | 2 => slides.push((text.to_string(), vec![])),
+                _ => {}
+            }
+            continue;
+        }
+        let rest = line.trim_start_matches('>').trim_start();
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        let item = ["- ", "* ", "+ "]
+            .iter()
+            .find_map(|m| rest.strip_prefix(m))
+            .or_else(|| {
+                rest[digits..]
+                    .strip_prefix(". ")
+                    .or_else(|| rest[digits..].strip_prefix(") "))
+                    .filter(|_| digits > 0)
+            });
+        if line.is_empty()
+            || line.starts_with('|')
+            || line.starts_with("![")
+            || (line.len() >= 3 && line.chars().all(|c| matches!(c, '-' | '*' | '_')))
+        {
+            flush(&mut buffer, &mut slides);
+        } else if let Some(text) = item {
+            flush(&mut buffer, &mut slides);
+            buffer.push(text.to_string());
+        } else {
+            buffer.push(rest.to_string());
+        }
+    }
+    flush(&mut buffer, &mut slides);
+    let opening = slides.remove(0);
+    if slides.is_empty() && !opening.1.is_empty() {
+        slides.push(("Summary".to_string(), opening.1));
+    }
+    let mut out = title.map_or(String::new(), |t| format!("# {t}\n\n"));
+    for (heading, points) in slides
+        .into_iter()
+        .filter(|s| !s.1.is_empty())
+        .take(DECK_SLIDES)
+    {
+        out.push_str(&format!("## {heading}\n\n"));
+        for p in points {
+            out.push_str(&format!("- {p}\n"));
+        }
+        out.push('\n');
+    }
+    out.trim_end().to_string() + "\n"
+}
+
 /// A step's title as a file name.
 fn slug(title: &str) -> String {
     let words: Vec<String> = title
@@ -928,5 +1072,77 @@ mod tests {
             Err(ExportError::Secrets(_))
         ));
         assert!(!fx.out.exists());
+    }
+
+    #[test]
+    fn a_deck_made_from_a_document_has_a_slide_for_each_section_with_a_few_short_points() {
+        let doc = "# Why the freight is late\n\nThe lede paragraph. It is skipped by the slides.\n\n## What happened\n\nPort delays hit in March. Nobody told the carriers.\n\nVolumes were up 12% on the year, e.g. in April. More text.\n\n- First point here. And more.\n- Second point\n- Third point\n- Fourth point\n\n## What it cost\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```\ncode is not a point.\n```\n\nIt cost **$40k** in fees? Yes.\n\n## What to do\n\nSwitch carriers.\n\n### A detail\n\nAnd renegotiate rates.\n";
+        let deck = deck_from_document(doc);
+        assert!(deck.starts_with("# Why the freight is late\n"), "{deck}");
+        let sections: Vec<&str> = deck.split("\n## ").skip(1).collect();
+        assert_eq!(sections.len(), 3, "{deck}");
+        for s in &sections {
+            let points = s.lines().filter(|l| l.starts_with("- ")).count();
+            assert!((1..=5).contains(&points), "{s}");
+        }
+        assert!(sections[0].starts_with("What happened"));
+        assert!(
+            sections[0].contains("- Port delays hit in March\n"),
+            "first sentence only, no full stop: {deck}"
+        );
+        assert!(!sections[0].contains("Nobody told"));
+        assert!(
+            sections[0].contains("- Volumes were up 12% on the year, e.g. in April\n"),
+            "{deck}"
+        );
+        assert!(sections[0].contains("- First point here\n") && !sections[0].contains("Fourth"));
+        assert!(!deck.contains("lede") && !deck.contains("code is not") && !deck.contains('|'));
+        assert!(
+            sections[1].contains("- It cost **$40k** in fees?"),
+            "{deck}"
+        );
+        assert!(
+            sections[2].contains("- Switch carriers\n")
+                && sections[2].contains("- And renegotiate rates\n")
+        );
+        // It is a deck the exporter reads: a title, and a slide for each section.
+        let parsed = crate::office_export::parse("T", "", &deck).unwrap();
+        assert_eq!(
+            parsed
+                .blocks
+                .iter()
+                .filter(|b| b.kind == "heading" && b.level == 2)
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn a_deck_made_from_a_document_stops_at_twelve_slides_and_leaves_out_what_is_for_the_team() {
+        let mut doc = String::from("# Big\n\n");
+        for n in 1..=15 {
+            doc.push_str(&format!("## Part {n}\n\nPoint {n}. Extra.\n\n"));
+        }
+        let deck = deck_from_document(&doc);
+        assert_eq!(deck.matches("\n## ").count(), 12);
+        assert!(deck.contains("## Part 12") && !deck.contains("Part 13"));
+        let held = "# T\n\n## One\n\nThe price is [NEEDED: the price per seat].\n\n## Source warnings\n\nFor the team only.\n\n## Two\n\nTooling used: x\n\nDone.\n";
+        let deck = deck_from_document(held);
+        assert!(
+            !deck.contains("NEEDED") && !deck.contains("team only") && !deck.contains("Tooling"),
+            "{deck}"
+        );
+        assert!(
+            deck.contains("## One") && deck.contains("## Two") && !deck.contains("Source warnings")
+        );
+        // No sections: the opening points become one slide. A long plain sentence is cut at a word.
+        let flat = format!("# Short\n\n{}\n", "word ".repeat(80));
+        let deck = deck_from_document(&flat);
+        assert!(deck.contains("## Summary"), "{deck}");
+        let point = deck.lines().find(|l| l.starts_with("- ")).unwrap();
+        assert!(
+            point.chars().count() <= 165 && point.ends_with('…'),
+            "{point}"
+        );
     }
 }

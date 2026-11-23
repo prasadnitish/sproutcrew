@@ -30,7 +30,7 @@ pub struct Made {
     pub path: PathBuf,
 }
 
-fn heading_level(line: &str) -> Option<(usize, &str)> {
+pub(crate) fn heading_level(line: &str) -> Option<(usize, &str)> {
     let t = line.trim_start();
     let n = t.chars().take_while(|c| *c == '#').count();
     (1..=6)
@@ -114,8 +114,9 @@ enum Until {
 
 /// Removes what is for the team and not the client: any section headed "Source warnings" or "Source warning" (at
 /// any level, to the next heading of the same level or higher), a bold, quoted or listed label of that name and
-/// what belongs to it, HTML comments, and any line that reports the tooling a worker used. Code in a fenced block
-/// (backticks or tildes) is left as it is. Returns the text and whether something was removed.
+/// what belongs to it, HTML comments, any line that reports the tooling a worker used, and the markers of details the
+/// person has not supplied. Code in a fenced block (backticks or tildes) is left as it is, except for those markers.
+/// Returns the text and whether something was removed.
 pub fn strip_internal(md: &str) -> (String, bool) {
     let md = document_body(md);
     let (mut out, mut skip, mut removed) = (Vec::<String>::new(), None::<usize>, false);
@@ -226,7 +227,9 @@ pub fn strip_internal(md: &str) -> (String, bool) {
             out.push(line.to_string());
         }
     }
-    (out.join("\n").trim_end().to_string() + "\n", removed)
+    // A marker for a detail only the person can supply is for them, so it is taken out of every file as well.
+    let text = out.join("\n").trim_end().to_string() + "\n";
+    (crate::gaps::strip(&text), removed)
 }
 
 /// What a closing step could not fix, for the person: the body of the section `strip_internal` keeps from the client.
@@ -295,8 +298,14 @@ pub fn make(
         .into_iter()
         .flatten()
     {
-        if crate::secrets::has_secret(&crate::secrets::scan(text)) {
-            return Err("Client export blocked: a possible secret was found in its text".into());
+        if let Some(f) = crate::secrets::scan_export(text)
+            .into_iter()
+            .find(|f| f.class == crate::secrets::Class::Secret)
+        {
+            return Err(format!(
+                "This line looks like it holds a key, so the files weren't made: line {}, \"{}\". Remove it and try again.",
+                f.line, f.excerpt
+            ));
         }
     }
     for (what, text) in [("document", document), ("deck", deck)] {
@@ -876,6 +885,47 @@ mod tests {
     }
 
     #[test]
+    fn a_bakery_article_with_our_secret_exports() {
+        let out = dir("bakery-secret");
+        let doc = "# Harbor Lane Bakery\n\nOur secret: slow-fermented dough, shaped by hand.";
+        let made = make(&Tools::default(), &out, "Harbor Lane", "", Some(doc), None);
+        assert!(made.is_ok(), "{:?}", made.err());
+    }
+
+    #[test]
+    fn a_long_hyphenated_name_or_web_address_is_not_a_key_but_a_named_key_still_blocks() {
+        let out = dir("long-slug");
+        let doc = "# Weekly bread\n\nRead more at https://harborlane.example/2026-spring-weekly-bread-subscription-launch-update today.";
+        let made = make(
+            &Tools::default(),
+            &out,
+            "600-word-article-website-harbor-2",
+            "",
+            Some(doc),
+            None,
+        );
+        assert!(made.is_ok(), "{:?}", made.err());
+        // The same long name as a subtitle and in the deck.
+        let out = dir("long-slug-deck");
+        let made = make(
+            &Tools::default(),
+            &out,
+            "600-word-article-website-harbor-2",
+            "600-word-article-website-harbor-2",
+            None,
+            Some("## 600-word-article-website-harbor-2\n\n- https://harborlane.example/2026-spring-weekly-bread-subscription-launch-update\n"),
+        );
+        assert!(made.is_ok(), "{:?}", made.err());
+        // A named key shape in the name or the text still stops it.
+        let key = format!("sk-ant-api03-{}", "abcdefghij".repeat(4));
+        for (name, text) in [(key.as_str(), "Fine."), ("Harbor", key.as_str())] {
+            let out = dir("long-slug-key");
+            let e = make(&Tools::default(), &out, name, "", Some(text), None).unwrap_err();
+            assert!(e.contains("looks like it holds a key"), "{e}");
+        }
+    }
+
+    #[test]
     fn a_seeded_secret_blocks_every_client_format_before_creating_the_folder() {
         let out = dir("secret-block");
         let secret = format!("sk-ant-api03-{}", "abcdefghij".repeat(4));
@@ -886,7 +936,12 @@ mod tests {
         ] {
             let error =
                 make(&Tools::default(), &out, "Safe project", subtitle, doc, deck).unwrap_err();
-            assert!(error.contains("secret") && !error.contains(&secret));
+            assert!(
+                error.contains("looks like it holds a key")
+                    && error.contains("line 1, \"sk-a***\"")
+                    && !error.contains(&secret),
+                "{error}"
+            );
             assert!(!out.exists());
         }
     }
@@ -919,5 +974,50 @@ mod tests {
         );
         assert!(out.contains("Body  more.") && out.contains("End."), "{out}");
         assert!(out.contains("<!-- keep this -->"), "{out}");
+    }
+
+    #[test]
+    fn a_missing_detail_marker_never_reaches_the_word_file_the_pdf_or_the_deck() {
+        let doc = "# Offer\n\nThe price is [NEEDED: the price per seat] a month.\n\n- [NEEDED: the start date]\n- Kept item\n";
+        let deck = "## The offer\n\n- Price: [NEEDED: the price\nper seat]\n- Kept point\n";
+        let (clean, _) = strip_internal(doc);
+        assert!(
+            !clean.contains("NEEDED") && clean.contains("Kept item"),
+            "{clean}"
+        );
+        let home = std::env::var("HOME").unwrap_or_default();
+        let tools = Tools::detect(&home);
+        let d = dir("needed");
+        let (made, notes) = make(&tools, &d, "Offer", "", Some(doc), Some(deck)).unwrap();
+        let kinds: Vec<_> = made.iter().map(|m| m.kind).collect();
+        assert!(
+            kinds.contains(&"word") && kinds.contains(&"deck"),
+            "{kinds:?} {notes:?}"
+        );
+        for m in &made {
+            let bytes = std::fs::read(&m.path).unwrap();
+            match m.kind {
+                "word" | "deck" => {
+                    let ext = if m.kind == "word" { "docx" } else { "pptx" };
+                    let text = crate::office::read(ext, &bytes).unwrap().pages.join("\n");
+                    assert!(
+                        !text.to_ascii_uppercase().contains("NEEDED"),
+                        "{}: {text}",
+                        m.kind
+                    );
+                    assert!(text.contains("Kept"), "{}: {text}", m.kind);
+                }
+                "pdf" => {
+                    // A PDF holds its text compressed, so the Typst source is what is checked.
+                    assert!(bytes.starts_with(b"%PDF"));
+                }
+                _ => {}
+            }
+        }
+        let typst_source = crate::typst::markdown_to_typst(&clean);
+        assert!(
+            !typst_source.to_ascii_uppercase().contains("NEEDED"),
+            "{typst_source}"
+        );
     }
 }

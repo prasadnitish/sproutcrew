@@ -268,10 +268,10 @@ fn the_results_of_one_project_feed_the_next_so_a_research_brief_can_lead_to_a_ca
         rows.iter()
             .map(|r| r["stage"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        vec!["read", "findings", "brief", "review", "finish"]
+        vec!["facts", "read", "findings", "brief", "review", "finish"]
     );
-    assert_eq!(rows[2]["title"], "Write the brief");
-    assert!(rows[2]["chars"].as_u64().unwrap() > 10);
+    assert_eq!(rows[3]["title"], "Write the brief");
+    assert!(rows[3]["chars"].as_u64().unwrap() > 10);
 
     let r = app
         .add_source_results("research", &["brief".to_string(), "review".to_string()])

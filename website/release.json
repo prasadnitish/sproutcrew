@@ -1,18 +1,18 @@
 {
   "available": true,
-  "version": "2.1.0",
-  "url": "https://download.sproutcrew.app/releases/2.1.0/SproutCrew_2.1.0_aarch64.dmg",
-  "sha256": "b7e8548d9d6927d474b35936438ac26f4acf415a0661be6b962baf2e50d49ded",
-  "size_bytes": 31835703,
+  "version": "2.2.0",
+  "url": "https://download.sproutcrew.app/releases/2.2.0/SproutCrew_2.2.0_aarch64.dmg",
+  "sha256": "5866b041a58f71009d4ccfa4b827d178c628c26596963f413991821d279afed8",
+  "size_bytes": 32014388,
   "reason": "Free public beta for Apple Silicon Macs. Signed and notarized; start-up checked on the build Mac. Updates are manual.",
   "materials": {
     "source": {
-      "url": "https://download.sproutcrew.app/releases/2.1.0/SproutCrew_2.1.0_mpl-sources.tar.gz",
-      "sha256": "3b7c54c3c5ad1a79e13e247ff2fae450ce14766511c7cf64d6cbd9a99a16b1ad",
+      "url": "https://download.sproutcrew.app/releases/2.2.0/SproutCrew_2.2.0_mpl-sources.tar.gz",
+      "sha256": "27b2d155b2ca3ed7ecfaa543204b4a24dc174b55fe719348f1d5c949f03d5de6",
       "size_bytes": 158303
     },
     "notices": {
-      "url": "https://download.sproutcrew.app/releases/2.1.0/SproutCrew_2.1.0_notices.zip",
+      "url": "https://download.sproutcrew.app/releases/2.2.0/SproutCrew_2.2.0_notices.zip",
       "sha256": "39a9ee7cc633928da3df6fb5cdbf0556ba6b24c65a4fc3403c4235c9c99bb560",
       "size_bytes": 166308
     }

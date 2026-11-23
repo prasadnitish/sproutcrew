@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-export-run-report-raw"
+description = "Enables the export_run_report_raw command without any pre-configured scope."
+commands.allow = ["export_run_report_raw"]
+
+[[permission]]
+identifier = "deny-export-run-report-raw"
+description = "Denies the export_run_report_raw command without any pre-configured scope."
+commands.deny = ["export_run_report_raw"]

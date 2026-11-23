@@ -30,7 +30,7 @@ export function keyOf(r: UsageRow, by: GroupBy, roleName: (role: string) => stri
     return [k, d.toLocaleDateString("en-US", { month: "long", year: "numeric" })];
   }
   if (by === "role") {
-    if (r.task === "plan") return ["~plan", "Coordinator plan"];
+    if (r.task === "plan") return ["~plan", "Planning"];
     return r.role ? [r.role, roleName(r.role)] : ["~none", "Role not recorded"];
   }
   return r.model ? [r.model, r.model] : ["~none", "Model not recorded"];
@@ -63,4 +63,22 @@ export function dollarsLine(dollars: number, unknown: number, requests: number):
   if (requests > 0 && unknown === requests) return "unknown";
   const d = dollars === 0 ? "$0" : dollars < 0.01 ? "under $0.01" : `$${dollars.toFixed(2)}`;
   return unknown ? `${d} + ${unknown} unknown` : d;
+}
+
+/** A small dollar amount at a glance: "under 1¢", "3¢", "$1.20". */
+export function smallMoney(v: number): string {
+  if (v <= 0) return "0¢";
+  if (v < 0.005) return "under 1¢";
+  const cents = Math.round(v * 100);
+  return cents < 100 ? `${cents}¢` : `$${v.toFixed(2)}`;
+}
+
+/** The one number Usage & limits leads with: "This project: 3¢ of $5.00". */
+export function projectSpend(used: number, cap: number): string {
+  return `This project: ${smallMoney(used)} of $${cap.toFixed(2)}`;
+}
+
+/** The same line for a project whose spending record could not be read: no amount, because 0 cents would be a claim. */
+export function projectSpendLine(l: { spent: number; held: number; cap: number; locked: string | null }): string {
+  return l.locked ? "Spending record unreadable" : projectSpend(l.spent + l.held, l.cap);
 }

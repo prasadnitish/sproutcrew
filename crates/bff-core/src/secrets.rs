@@ -160,7 +160,29 @@ fn assignments(line: &str) -> Vec<String> {
     out
 }
 
+/// The strict scan: key shapes, and a secret-sounding name assigned a value (`password = ...`). Use it
+/// for anything that can hold code or config, and for text that goes to a service.
 pub fn scan(text: &str) -> Vec<Finding> {
+    scan_text(text, true)
+}
+
+/// The scan for finished writing that a person is about to export. Only text shaped like a key counts, so
+/// "Our secret: slow-fermented dough" is ordinary prose and not a secret.
+pub fn scan_prose(text: &str) -> Vec<Finding> {
+    scan_text(text, false)
+}
+
+/// The scan for text that goes into files made on this Mac (Word, PDF, deck, the run report, a saved note). Only a
+/// named key shape counts. A long hyphenated name or web address has the shape of a "high-entropy token" and is
+/// not a key, and refusing it would make every file for that project impossible.
+pub fn scan_export(text: &str) -> Vec<Finding> {
+    scan_prose(text)
+        .into_iter()
+        .filter(|f| f.kind != "high-entropy token")
+        .collect()
+}
+
+fn scan_text(text: &str, with_assignments: bool) -> Vec<Finding> {
     let mut out: Vec<Finding> = Vec::new();
     for (n, line) in text.lines().enumerate() {
         let line_no = n + 1;
@@ -217,7 +239,12 @@ pub fn scan(text: &str) -> Vec<Finding> {
                 }
             }
         }
-        for value in assignments(line) {
+        let named = if with_assignments {
+            assignments(line)
+        } else {
+            Vec::new()
+        };
+        for value in named {
             if !reported.iter().any(|r| r == &value) {
                 add("secret assignment", Class::Secret, &value);
             }
@@ -356,6 +383,26 @@ mod tests {
     }
 
     #[test]
+    fn prose_scan_ignores_secret_followed_by_a_colon_in_ordinary_writing() {
+        let line = "Our secret: slow-fermented dough, shaped by hand.";
+        assert!(scan_prose(line).is_empty(), "{:?}", scan_prose(line));
+        assert!(has_secret(&scan(line)), "the strict rule is unchanged");
+    }
+
+    #[test]
+    fn prose_scan_still_catches_key_shapes() {
+        let keys = [
+            format!("sk-or-v1-{}", "0123456789abcdef".repeat(4)),
+            "AIzaSyA1234567890abcdefghijklmnopqrstuv".to_string(),
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnop".to_string(),
+        ];
+        for key in keys {
+            let f = scan_prose(&format!("Our secret: {key} for later"));
+            assert!(has_secret(&f), "{key} -> {f:?}");
+        }
+    }
+
+    #[test]
     fn one_secret_is_reported_once_even_when_two_patterns_match_it() {
         let f = scan("Authorization: Bearer sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789");
         assert_eq!(
@@ -363,5 +410,17 @@ mod tests {
             1,
             "{f:?}"
         );
+    }
+
+    #[test]
+    fn the_export_scan_ignores_a_long_slug_and_keeps_named_key_shapes() {
+        let slug = "see 600-word-article-website-harbor-2 and https://harborlane.example/2026-spring-weekly-bread-subscription-launch-update";
+        assert!(
+            has_secret(&scan_prose(slug)),
+            "the prose scan still treats it as a token"
+        );
+        assert!(!has_secret(&scan_export(slug)));
+        let key = format!("key: sk-ant-api03-{}", "abcdefghij".repeat(4));
+        assert!(has_secret(&scan_export(&key)));
     }
 }

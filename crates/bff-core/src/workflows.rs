@@ -51,12 +51,12 @@ const fn role(id: &'static str, label: &'static str, side: Side, does: &'static 
     }
 }
 
-const REVIEWER: Role = role("reviewer", "Final reviewer", Side::Checking, "Reads everything together, checks it against the files and the brief, and gives the verdict: ship, fix first, or do not ship.");
+const REVIEWER: Role = role("reviewer", "Second check", Side::Checking, "Reads everything together, checks it against the files and the brief, and says whether it is ready. It lists what to fix and does not rewrite the work.");
 
 /// Every role any use case has, for showing a plan's team with names and descriptions.
 const ROLES: &[Role] = &[
     role("analyst", "Analyst", Side::Writing, "Frames the problem and sets out the options from the files, with the evidence for and against each."),
-    role("numbers", "Numbers checker", Side::Checking, "Recomputes every figure and unit before anyone builds on them, and says which are wrong or not in the files."),
+    role("numbers", "Numbers check", Side::Checking, "Recomputes every figure and unit before anyone builds on them, and says which are wrong or not in the files."),
     role("strategist", "Strategist", Side::Writing, "Turns the checked analysis into one recommendation, a 90-day plan, and the measures that show it is working."),
     role("editor", "Editor", Side::Writing, "Revises the draft for clarity, structure, and voice while preserving its meaning and supported facts."),
     role("presenter", "Presenter", Side::Writing, "Builds the board deck and the hardest questions a director will ask, each with a short answer."),
@@ -77,7 +77,7 @@ const ROLES: &[Role] = &[
     role("customer", "Customer evidence analyst", Side::Checking, "Reads the customer feedback, counts what it says, and says when there is too little to go on."),
     role("ideas_a", "First idea maker", Side::Writing, "Forms its own ideas without seeing the other side's, then argues against the other side's best ones."),
     role("ideas_b", "Second idea maker", Side::Checking, "Forms its own ideas without seeing the other side's, then argues against the other side's best ones."),
-    role("dissent", "Dissent checker", Side::Checking, "Reads what the merge dropped and restores anything dropped without a good reason."),
+    role("dissent", "Dissent check", Side::Checking, "Reads what the merge dropped and restores anything dropped without a good reason."),
     REVIEWER,
     role("web_researcher", "Web researcher", Side::Writing, "Searches the public web using only your brief. It never sees your files."),
 ];
@@ -105,11 +105,28 @@ pub fn with_web_research(mut plan: Plan, on: Choice) -> Plan {
         return plan;
     }
     let social = plan.stages.iter().any(|s| s.owner_role == "copywriter");
+    // A plan that starts with the check of what is missing gets this step after it, and the step that waited for the
+    // check waits for this one instead.
+    let facts_first = plan
+        .stages
+        .first()
+        .is_some_and(|s| s.id == crate::facts::FACTS_STEP);
+    if facts_first {
+        for s in &mut plan.stages[1..] {
+            if s.after == [crate::facts::FACTS_STEP] {
+                s.after = vec![WEB_STEP.into()];
+            }
+        }
+    }
     plan.stages.insert(
-        0,
+        usize::from(facts_first),
         Stage {
             uses: None,
-            after: vec![],
+            after: if facts_first {
+                vec![crate::facts::FACTS_STEP.into()]
+            } else {
+                vec![]
+            },
             id: WEB_STEP.into(),
             title: if social {
                 "Check current posting rules for each platform"
@@ -133,18 +150,58 @@ pub fn with_web_research(mut plan: Plan, on: Choice) -> Plan {
 /// The plan without web research.
 pub fn without_web_research(mut plan: Plan) -> Plan {
     plan.stages.retain(|s| s.id != WEB_STEP);
+    let facts = plan.stages.iter().any(|s| s.id == crate::facts::FACTS_STEP);
     for s in &mut plan.stages {
+        let waited = s.after.iter().any(|a| a == WEB_STEP);
         s.after.retain(|a| a != WEB_STEP);
+        // A step that waited only for the web step goes back to waiting for the check of what is missing.
+        if waited && s.after.is_empty() && facts {
+            s.after = vec![crate::facts::FACTS_STEP.into()];
+        }
     }
     plan.team.retain(|a| a.role != WEB_ROLE);
     plan
 }
 
+/// The plan with a first step that asks for the facts only the person can give, by the writer on the writing model.
+/// Every step that waited for nothing waits for it. The step runs after the plan is approved, so nothing is sent
+/// before then; see [`crate::facts`]. A plan with no writer is returned as it is.
+pub fn with_fact_check(mut plan: Plan) -> Plan {
+    if plan.stages.iter().any(|s| s.id == crate::facts::FACTS_STEP)
+        || !plan.team.iter().any(|a| a.role == crate::facts::FACTS_ROLE)
+    {
+        return plan;
+    }
+    let roots: Vec<String> = plan
+        .stages
+        .iter()
+        .filter(|s| s.after.is_empty() && plan.needs(&s.id).is_empty())
+        .map(|s| s.id.clone())
+        .collect();
+    for s in &mut plan.stages {
+        if roots.contains(&s.id) {
+            s.after = vec![crate::facts::FACTS_STEP.into()];
+        }
+    }
+    plan.stages.insert(
+        0,
+        Stage {
+            uses: None,
+            after: vec![],
+            id: crate::facts::FACTS_STEP.into(),
+            title: "Check what's missing".into(),
+            owner_role: crate::facts::FACTS_ROLE.into(),
+            guide: crate::facts::FACTS_GUIDE.into(),
+        },
+    );
+    plan
+}
+
 /// The step that removes the signs of machine writing from a finished piece, and the step it polishes.
 pub const POLISH_STEP: &str = "polish_finish";
-const POLISH_SOURCE: &str = "finish";
+pub const POLISH_SOURCE: &str = "finish";
 const HUMANISER: &str = "humaniser";
-const POLISH_GUIDE: &str = "Take the finished text from the step finish. Rewrite it so it reads as written by a careful person. Change wording only. Do not change any number, date, name, quote, or claim, and do not add a claim or a source that the material does not have. Remove the signs of machine writing: puffed-up words (pivotal, crucial, vibrant, rich, robust, landscape, tapestry, testament, delve, meticulous, leverage); verbs like serves as, stands as, functions as, boasts, features, and offers where is or has says it; contrasts such as not only X but also Y, or not X but Y, where nothing is really being contrasted; tacked-on endings that claim importance (highlighting, underscoring, reflecting, showcasing); vague attribution such as experts say or studies show, where you cut the phrase and keep the sourced fact; lists of three that are there only for rhythm; openings and closings that only restate; em dashes that a comma or a full stop would replace; and bold that marks nothing. Prefer is and has, concrete nouns, and short sentences. Keep the length within ten percent. Keep the title, every heading, every table, and the order of sections exactly as they are. Keep a section titled Source warnings, if there is one, exactly as it is, word for word. Write out the whole text, ready to use.";
+const POLISH_GUIDE: &str = "Take the finished text from the step finish. Rewrite it so it reads as written by a careful person. Change wording only. Do not change any number, date, name, quote, or claim, and do not add a claim or a source that the material does not have. Remove the signs of machine writing: puffed-up words (pivotal, crucial, vibrant, rich, robust, landscape, tapestry, testament, delve, meticulous, leverage); verbs like serves as, stands as, functions as, boasts, features, and offers where is or has says it; contrasts such as not only X but also Y, or not X but Y, where nothing is really being contrasted; tacked-on endings that claim importance (highlighting, underscoring, reflecting, showcasing); vague attribution such as experts say or studies show, where you cut the phrase and keep the sourced fact; lists of three that are there only for rhythm; openings and closings that only restate; em dashes that a comma or a full stop would replace; and bold that marks nothing. Prefer is and has, concrete nouns, and short sentences. Keep the length within ten percent. Keep the title, every heading, every table, and the order of sections exactly as they are. Keep every [NEEDED: ...] marker exactly as it is, word for word. Keep a section titled Source warnings, if there is one, exactly as it is, word for word. Write out the whole text, ready to use.";
 
 /// Whether a plan can take a humaniser step: it ends with a step `finish` that writes the finished text.
 pub fn can_humanise(plan: &Plan) -> bool {
@@ -222,7 +279,7 @@ pub fn with_prototype(mut plan: Plan) -> Plan {
     let writer = plan
         .stages
         .iter()
-        .find(|s| !checks(&s.owner_role))
+        .find(|s| s.id != crate::facts::FACTS_STEP && !checks(&s.owner_role))
         .and_then(|s| plan.team.iter().find(|a| a.role == s.owner_role))
         .cloned();
     let (Some(writer), Some(last)) = (writer, plan.stages.last().map(|s| s.id.clone())) else {
@@ -303,6 +360,10 @@ const ATTACK_GUIDE: &str = "Read the other side's ideas, which are the result of
 /// The case-study review also checks the reasoning a case grader looks for, not only the facts.
 const CASE_REVIEW_GUIDE: &str = "Read the results of the earlier steps and the files. List every problem you find, each with where it is and why it matters. Recompute every number you can. Quote the line you are doubting. Also check the reasoning: whether the recommendation shows where its benefit comes from, step by step; whether it says what happens if its key assumption fails; whether the plan fits the stated people and time, with a cut list; whether release requirements are kept apart from success measures, and each measure matches its baseline; whether failure and permission cases are shown as exceptions with a way to recover; and whether anything is stated as fact that the files do not support. If the requirements set a word limit, count the words. End with one verdict: ship, fix first, or do not ship. If you find nothing wrong, say what you checked.";
 
+/// The proposal's check. It ends on the verdict line that [`crate::verdict::VERDICT_GUIDE`] asks for, so it does not
+/// carry an ending of its own.
+const PROPOSAL_REVIEW_GUIDE: &str = "Read the results of the earlier steps and the files. List every problem you find, each with where it is and why it matters. Recompute every number you can. Quote the line you are doubting. If you find nothing wrong, say what you checked.";
+
 const REVIEW_GUIDE: &str = "Read the results of the earlier steps and the files. List every problem you find, each with where it is and why it matters. Recompute every number you can. Quote the line you are doubting. End with one verdict: ship, fix first, or do not ship. If you find nothing wrong, say what you checked.";
 
 /// Added to the final review step, where the whole chain is read together. A different provider can add
@@ -338,7 +399,13 @@ impl Workflow {
     /// The use case a plan came from, judged by its step names: the one sharing the most steps, if at least half
     /// of the plan's steps are its own. A plan the coordinator wrote from scratch matches none.
     pub fn of_plan(plan: &crate::plan::Plan) -> Option<Workflow> {
-        let ids: Vec<&str> = plan.stages.iter().map(|s| s.id.as_str()).collect();
+        // The check of what is missing is added to some outcomes and is not one of their own steps.
+        let ids: Vec<&str> = plan
+            .stages
+            .iter()
+            .map(|s| s.id.as_str())
+            .filter(|id| *id != crate::facts::FACTS_STEP)
+            .collect();
         Workflow::ALL
             .iter()
             .map(|w| {
@@ -452,13 +519,22 @@ impl Workflow {
         }
     }
 
+    /// Whether the check ends with a verdict the screen shows, and the finish step can be stopped by. Only the
+    /// outcomes whose check already asks for a decision to send do; the others keep the check they have.
+    pub fn review_gives_verdict(self) -> bool {
+        matches!(
+            self,
+            Workflow::Writing | Workflow::Proposal | Workflow::ResearchBrief
+        )
+    }
+
     fn steps(self) -> Vec<Step> {
         match self {
             Workflow::Writing => vec![
                 ("outline", "Shape the piece", "writer", "Identify the audience, purpose, format, voice, and target length from the brief. List the key message and an outline. Use supplied writing samples as voice references, not as facts about the topic. Separate source-backed facts from assumptions. Do not invent interviews, quotations, experiences, or statistics."),
-                ("draft", "Write the first draft", "writer", "Write a complete piece following the outline and the person's requirements. Open with a concrete point, develop it in connected paragraphs, and use specific evidence from the sources. Match the requested voice and length. Mark anything that requires a source or the person's input. Do not replace the piece with advice about how to write it."),
-                ("edit", "Edit for voice and clarity", "editor", "Revise the whole draft for the stated audience, voice, structure, and length. Remove repeated points, inflated wording, generic openings, and unsupported certainty. Preserve names, dates, numbers, source links, and the author's meaning. Return the complete edited piece, not editorial notes."),
-                ("review", "Check the writing and its claims", "reviewer", "Check the edited piece against the brief, the sources, the requested voice, and the word limit. For each factual claim say which source supports it or flag the gap. Check quotations, attribution, numbers, and links. Identify invented personal experience or interviews. Give specific fixes and end with ship, fix first, or do not ship."),
+                ("draft", "Write the first draft", "writer", "Write a complete piece following the outline and the person's requirements. Open with a concrete point, develop it in connected paragraphs, and use specific evidence from the sources. Match the requested voice and length. Where a fact only the person can supply is missing, write [NEEDED: what is missing] in its place. Never guess it. Do not replace the piece with advice about how to write it."),
+                ("edit", "Edit for voice and clarity", "editor", "Revise the whole draft for the stated audience, voice, structure, and length. Remove repeated points, inflated wording, generic openings, and unsupported certainty. Preserve names, dates, numbers, source links, and the author's meaning. Keep every [NEEDED: ...] marker exactly as it is: do not fill it in, reword it, or remove it. Return the complete edited piece, not editorial notes."),
+                ("review", "Check the writing and its claims", "reviewer", "Check the edited piece against the brief, the sources, the requested voice, and the word limit. For each factual claim say which source supports it or flag the gap. Check quotations, attribution, numbers, and links. Identify invented personal experience or interviews. A [NEEDED: ...] marker is a detail the person still has to supply: do not count it as an error and do not fill it in. Give the specific fix for each problem."),
                 ("finish", "Write the finished piece", "writer", finish_guide!("finished piece", "the step edit", "review")),
             ],
             Workflow::CaseStudy => vec![
@@ -479,14 +555,14 @@ impl Workflow {
                 ("scope", "Summarise the problem and the constraints", "researcher", "From the files and the brief, write the problem, who has it, what is known about them, the constraints, and what is out of scope. Mark anything you are assuming."),
                 ("draft", "Write the proposal", "writer", "Write the proposal or PRD: goal, users, requirements numbered so they can be referred to, the approach, the options you rejected and why, and the plan with owners left blank."),
                 ("risks", "List risks, open questions, and success measures", "risk", "Read the draft as someone who did not write it. List what it assumes without saying so, the risks with a likelihood and an effect, the open questions with who could answer each, and the success measures with a baseline and a target. Say where a baseline is unknown."),
-                ("review", "Review the proposal", "reviewer", REVIEW_GUIDE),
+                ("review", "Review the proposal", "reviewer", PROPOSAL_REVIEW_GUIDE),
                 ("finish", "Write the final proposal", "writer", finish_guide!("proposal", "the step draft, with the step risks added as its last sections,", "review")),
             ],
             Workflow::ResearchBrief => vec![
                 ("read", "Read the files and list what each says", "reader", "For each file, write what it says in a few lines and quote the sentences that matter, with the file id. Say what each file does not cover. Do not use anything that is not in the files."),
                 ("findings", "Write the findings", "reader", "Write each finding as one sentence, then the file id and the exact quote that supports it. If the files conflict, show both. If the files do not answer a point in the brief, say that it is not answered."),
                 ("brief", "Write the brief", "writer", "Write a one-page brief for a busy reader: the answer first, then the findings that matter, then what is still unknown. Keep every file id next to the claim it supports."),
-                ("review", "Check every claim against the files", "reviewer", "For each claim in the brief, find its quote in the files and say whether the quote supports it. List the claims that are unsupported, overstated, or missing a file id. End with a verdict: ship, fix first, or do not ship."),
+                ("review", "Check every claim against the files", "reviewer", "For each claim in the brief, find its quote in the files and say whether the quote supports it. List the claims that are unsupported, overstated, or missing a file id."),
                 ("finish", "Write the final brief", "writer", finish_guide!("brief", "the step brief", "review")),
             ],
             Workflow::AppDevelopment => vec![
@@ -545,7 +621,7 @@ macro_rules! finish_guide {
     ($what:literal, $from:literal, $check:literal) => {
         concat!(
             "Write the final ", $what, ", ready to hand over. Start from ", $from, " and apply every fix the step ", $check,
-            " listed for it. Change nothing else: keep the title, the headings, and the order unless a fix needs otherwise. Do not add a fact, number, or source that the material does not have. If a fix needs something only the person can supply, leave that text as it is and say what is needed in a section titled Still open before sending, placed just before Source warnings, and leave that section out if nothing is open. Keep the last section titled Source warnings, if there is one, exactly as it is. If the check found nothing wrong, write the text out unchanged. Write out the whole text, and do not mention the check, the steps, or your changes."
+            " listed for it. Change nothing else: keep the title, the headings, and the order unless a fix needs otherwise. Do not add a fact, number, or source that the material does not have. Where a fact only the person can supply is missing, write [NEEDED: what is missing] in its place. Never guess it. Keep each such marker the text already has, unless the person's notes give the fact (then use it and remove the marker) or say to write around it (then rewrite the sentence so it reads whole without it, and leave no placeholder). If a fix needs something only the person can supply that is not a missing fact, leave that text as it is and say what is needed in a section titled Still open before sending, placed just before Source warnings, and leave that section out if nothing is open. Do not list a marked fact there as well. Keep the last section titled Source warnings, if there is one, exactly as it is. If the check found nothing wrong, write the text out unchanged. Write out the whole text, and do not mention the check, the steps, or your changes."
         )
     };
 }
@@ -576,7 +652,9 @@ pub fn plan_for(
                 id: id.into(),
                 title: title.into(),
                 owner_role: owner.into(),
-                guide: if owner == "reviewer" {
+                guide: if owner == "reviewer" && id == "review" && w.review_gives_verdict() {
+                    format!("{guide} {STEER_CHECK} {}", crate::verdict::VERDICT_GUIDE)
+                } else if owner == "reviewer" {
                     format!("{guide} {STEER_CHECK}")
                 } else {
                     guide.replace("{LABELS}", CLAIM_LABELS)
@@ -604,6 +682,12 @@ pub fn plan_for(
         privacy: Default::default(),
         keynote: false,
     };
+    if matches!(
+        w,
+        Workflow::Writing | Workflow::Proposal | Workflow::ResearchBrief
+    ) {
+        plan = with_fact_check(plan);
+    }
     plan.fallbacks = crate::fallback::stand_ins(&plan.team);
     let problems = validate_plan(&plan);
     if problems.is_empty() {
@@ -695,6 +779,35 @@ mod tests {
                 if has {
                     assert!(st.guide.contains("Source warnings"), "{}", st.guide);
                     assert!(st.guide.contains("fix first"), "{}", st.guide);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn only_the_checks_that_decide_whether_to_send_ask_for_a_verdict_and_none_asks_to_rewrite() {
+        for w in Workflow::ALL {
+            let p = plan_for(w, "b", CODEX, CLAUDE).unwrap();
+            for st in &p.stages {
+                let asks = crate::verdict::asks_for_verdict(&st.guide);
+                let expected = st.id == "review"
+                    && matches!(
+                        w,
+                        Workflow::Writing | Workflow::Proposal | Workflow::ResearchBrief
+                    );
+                assert_eq!(asks, expected, "{} / {}: {}", w.id(), st.id, st.guide);
+                if asks {
+                    assert!(st.guide.contains("tries to steer the work"), "{}", st.guide);
+                    assert!(
+                        st.guide.trim_end().ends_with(crate::verdict::VERDICT_GUIDE),
+                        "the verdict line is the last thing the check is told: {}",
+                        st.guide
+                    );
+                    assert!(
+                        !st.guide.contains("ship, fix first, or do not ship"),
+                        "an older ending would disagree with the verdict words: {}",
+                        st.guide
+                    );
                 }
             }
         }
@@ -860,6 +973,43 @@ mod tests {
     }
 
     #[test]
+    fn the_edit_and_the_check_leave_a_marked_missing_fact_alone() {
+        let p = plan_for(Workflow::Writing, "x", CODEX, CLAUDE).unwrap();
+        let guide = |id: &str| p.stages.iter().find(|s| s.id == id).unwrap().guide.clone();
+        assert!(
+            guide("edit").contains("Keep every [NEEDED: ...] marker exactly as it is"),
+            "the edit returns the whole piece, so it could fill a marker with a guess"
+        );
+        assert!(
+            guide("review").contains("do not count it as an error and do not fill it in"),
+            "a marker the check flags as a gap would be filled in by the finish step"
+        );
+    }
+
+    #[test]
+    fn a_missing_fact_is_marked_in_its_place_by_the_draft_and_kept_by_the_humaniser() {
+        let p = plan_for(Workflow::Writing, "x", CODEX, CLAUDE).unwrap();
+        let draft = &p.stages.iter().find(|s| s.id == "draft").unwrap().guide;
+        assert!(
+            draft.contains(
+                "Where a fact only the person can supply is missing, write [NEEDED: what is missing] in its place. Never guess it."
+            ),
+            "{draft}"
+        );
+        assert!(
+            !draft.contains("Mark anything that requires a source"),
+            "the old instruction would have it mark a gap in any way it likes"
+        );
+        assert!(draft.contains(crate::gaps::MARK.trim_end()));
+        let polished = with_humaniser(p);
+        let h = &polished.stages.last().unwrap().guide;
+        assert!(
+            h.contains("Keep every [NEEDED: ...] marker exactly as it is"),
+            "{h}"
+        );
+    }
+
+    #[test]
     fn social_posts_come_as_a_full_creative_that_can_be_posted_as_it_is() {
         let p = plan_for(Workflow::SocialPublishing, "x", CODEX, CLAUDE).unwrap();
         let guide = |id: &str| p.stages.iter().find(|s| s.id == id).unwrap().guide.clone();
@@ -883,7 +1033,7 @@ mod tests {
             plan_for(Workflow::Writing, "x", CODEX, CLAUDE).unwrap(),
             ("R12", "anthropic/claude-haiku-5.5", "low"),
         );
-        assert_eq!(writing.stages[0].guide, WEB_GUIDE);
+        assert_eq!(writing.stages[1].guide, WEB_GUIDE);
         assert!(guide("review").contains("hashtags") && guide("review").contains("alt text"));
         assert!(
             guide("queue").contains("exactly as approved")
@@ -1008,7 +1158,13 @@ mod tests {
                 "{w:?}: {} follows the check, so it can apply what the check found",
                 last.id
             );
-            for must in ["apply every fix", "Still open before sending", "unchanged"] {
+            for must in [
+                "apply every fix",
+                "Still open before sending",
+                "unchanged",
+                "write [NEEDED: what is missing] in its place. Never guess it.",
+                "say to write around it (then rewrite the sentence so it reads whole without it",
+            ] {
                 assert!(last.guide.contains(must), "{w:?}: {must}");
             }
         }
@@ -1322,8 +1478,10 @@ mod tests {
         ] {
             let p = plan_for(w, "x", CODEX, CLAUDE).unwrap();
             assert!(
-                p.stages.iter().all(|s| s.after.is_empty()),
-                "{w:?} is a chain"
+                p.stages
+                    .iter()
+                    .all(|s| s.after.is_empty() || s.id == p.stages[1].id),
+                "{w:?} is a chain, and only the step after the facts check names what it waits for"
             );
         }
     }
@@ -1349,6 +1507,65 @@ mod tests {
             st.id = format!("mine{i}");
         }
         assert_eq!(Workflow::of_plan(&own), None);
+    }
+
+    #[test]
+    fn writing_proposal_and_research_plans_start_by_checking_what_is_missing_and_no_other_plan_does(
+    ) {
+        for (w, first) in [
+            (Workflow::Writing, "outline"),
+            (Workflow::Proposal, "scope"),
+            (Workflow::ResearchBrief, "read"),
+        ] {
+            let p = plan_for(w, "b", CODEX, CLAUDE).unwrap();
+            let facts = &p.stages[0];
+            assert_eq!(facts.id, crate::facts::FACTS_STEP, "{w:?}");
+            assert_eq!(facts.title, "Check what's missing");
+            assert_eq!(facts.owner_role, "writer");
+            assert_eq!(facts.guide, crate::facts::FACTS_GUIDE);
+            assert!(facts.after.is_empty() && facts.uses.is_none());
+            assert_eq!(p.stages[1].id, first);
+            assert_eq!(p.stages[1].after, ["facts"], "{w:?}");
+            assert_eq!(p.needs(first), ["facts"]);
+            assert_eq!(
+                p.stages.iter().filter(|s| s.id == "facts").count(),
+                1,
+                "{w:?}"
+            );
+            // The rest of the chain is as it was: each step follows the one before it.
+            assert!(p.stages[2..].iter().all(|s| s.after.is_empty()), "{w:?}");
+            assert!(crate::flow::validate_plan(&p).is_empty(), "{w:?}");
+            assert_eq!(Workflow::of_plan(&p), Some(w), "{w:?} is still recognised");
+            assert_eq!(with_fact_check(p.clone()), p, "added once");
+        }
+        for w in [
+            Workflow::CaseStudy,
+            Workflow::AppDevelopment,
+            Workflow::SocialPublishing,
+            Workflow::Brainstorm,
+            Workflow::QuickBrainstorm,
+        ] {
+            let p = plan_for(w, "b", CODEX, CLAUDE).unwrap();
+            assert!(p.stages.iter().all(|s| s.id != "facts"), "{w:?}");
+        }
+    }
+
+    #[test]
+    fn web_research_comes_after_the_facts_check_and_the_first_step_waits_for_it() {
+        let base = plan_for(Workflow::Writing, "b", CODEX, CLAUDE).unwrap();
+        let on = ("R12", "anthropic/claude-haiku-5.5", "medium");
+        let web = with_web_research(base.clone(), on);
+        let ids: Vec<&str> = web.stages.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(&ids[..3], ["facts", WEB_STEP, "outline"]);
+        assert_eq!(web.needs(WEB_STEP), ["facts"]);
+        assert_eq!(web.needs("outline"), [WEB_STEP]);
+        assert_eq!(web.ancestors("outline"), ["facts", WEB_STEP]);
+        assert!(crate::flow::validate_plan(&web).is_empty());
+        assert_eq!(
+            without_web_research(web),
+            base,
+            "taking it away restores the plan"
+        );
     }
 
     #[test]

@@ -189,7 +189,7 @@ impl Refusal {
             Refusal::UnknownModel(m) => format!("{m} is not a model this service lists. Choose another model"),
             Refusal::NoPrices(what) => format!("this service has no {what} price set, so its cost could not be bounded"),
             Refusal::InputTooLarge { estimate, max } => format!(
-                "what this step sends is too long: it counts {estimate} against a limit of {max} for this service. Remove a long source, or ask your coordinator to split the step"
+                "what this step sends is too long: it counts {estimate} against a limit of {max} for this service. Remove a long source, or ask for a change that splits the step"
             ),
             Refusal::BadOutputBound(n) => format!("the answer length set for this service ({n}) is not usable"),
             Refusal::ToolsNotAllowed(what) => format!("this service cannot use {what} here"),

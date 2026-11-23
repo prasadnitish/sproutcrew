@@ -76,6 +76,8 @@ fn one_free_api_key_runs_writing_with_approval_memory_reopen_and_a_real_export()
     assert!(app.run_stage(&mut engine, "outline", 5).is_err());
     assert!(sent.lock().unwrap().is_empty());
     app.approve("Tester", 6).unwrap();
+    // The check of what is missing runs first, and a reply that lists no question holds nothing.
+    app.run_stage(&mut engine, "facts", 7).unwrap();
     app.run_stage(&mut engine, "outline", 7).unwrap();
     drop(app);
     let mut app = App::new(base.clone());
@@ -87,7 +89,7 @@ fn one_free_api_key_runs_writing_with_approval_memory_reopen_and_a_real_export()
         app.run_stage(&mut engine, stage, 8 + i as u64).unwrap();
     }
     let requests = sent.lock().unwrap();
-    assert_eq!(requests.len(), 5);
+    assert_eq!(requests.len(), 6);
     for request in requests.iter() {
         let prompt = request["messages"].to_string();
         assert!(prompt.contains("Our audience is product managers."));
@@ -115,7 +117,7 @@ fn one_free_api_key_runs_writing_with_approval_memory_reopen_and_a_real_export()
             .as_array()
             .unwrap()
             .len(),
-        5
+        6
     );
     std::fs::remove_dir_all(base).unwrap();
 }

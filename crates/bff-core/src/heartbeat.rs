@@ -1,5 +1,5 @@
 //! A visible progress line at least every 30 seconds while a stage runs, so no stage goes more than two
-//! minutes without something to read.
+//! minutes without something to read. The line names the step by its title, never by its ID.
 
 pub const INTERVAL_SECS: u64 = 30;
 
@@ -49,17 +49,20 @@ mod tests {
 
     #[test]
     fn the_first_call_announces_the_start_then_a_line_every_thirty_seconds() {
-        let mut h = Heartbeat::new("draft on Codex", 100);
-        assert_eq!(h.line(100).as_deref(), Some("Started: draft on Codex"));
+        let mut h = Heartbeat::new("Writing the first draft", 100);
+        assert_eq!(
+            h.line(100).as_deref(),
+            Some("Started: Writing the first draft")
+        );
         assert_eq!(h.line(110), None);
         assert_eq!(h.line(129), None);
         assert_eq!(
             h.line(130).as_deref(),
-            Some("Still working: draft on Codex (30s so far)")
+            Some("Still working: Writing the first draft (30s so far)")
         );
         assert_eq!(
             h.line(160).as_deref(),
-            Some("Still working: draft on Codex (1m 00s so far)")
+            Some("Still working: Writing the first draft (1m 00s so far)")
         );
         assert_eq!(h.line(165), None);
     }

@@ -5,10 +5,10 @@ import "./tokens.css";
 import "./styles.css";
 import "./brand.css";
 import "./screens.css";
-import { applyPalette, loadPalette } from "./palette";
+import { applyScheme, loadScheme } from "./scheme";
 import { applyTheme, loadTheme } from "./theme";
 
-applyPalette(loadPalette(), false);
+applyScheme(loadScheme(), false);
 applyTheme(loadTheme(), false);
 
 createRoot(document.getElementById("root")!).render(

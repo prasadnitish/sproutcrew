@@ -18,7 +18,7 @@ function Card({ ctx, p, reload }: { ctx: Ctx; p: Proposal; reload: () => Promise
   const live = p.status === "pending" || p.status === "blocked";
   const changesPlan = p.changes.some((c) => c.op !== "add_note");
   const stepName = (id: string) => ctx.s.plan?.stages.find((x) => x.id === id)?.title ?? id;
-  const apply = () => ctx.guard(async () => { await api.call("coordinator_apply", { id: p.id, by: "Nitish" }); await reload(); });
+  const apply = () => ctx.guard(async () => { await api.call("coordinator_apply", { project: ctx.s.name, id: p.id }); await reload(); });
   const runAgain = () =>
     ctx.guard(async () => {
       for (const id of p.rerun) {
@@ -66,7 +66,7 @@ function Card({ ctx, p, reload }: { ctx: Ctx; p: Proposal; reload: () => Promise
   );
 }
 
-/** A conversation with the coordinator about the plan and the notes. It cannot change a result. */
+/** Asking for a change to the plan and the notes, as a conversation. It cannot change a result. */
 export default function Coordinator({ ctx, onClose }: { ctx: Ctx; onClose: () => void }) {
   const [turns, setTurns] = useState<Turn[] | null>(null);
   const [msg, setMsg] = useState("");
@@ -81,10 +81,10 @@ export default function Coordinator({ ctx, onClose }: { ctx: Ctx; onClose: () =>
       await load();
     });
   return (
-    <section id="coordinator-panel" className="sheet coordinator" aria-label="Talk to the coordinator">
+    <section id="coordinator-panel" className="sheet coordinator" aria-label="Ask for a change">
       <div className="sheet-head">
         <div>
-          <h2>Talk to the coordinator</h2>
+          <h2>Ask for a change</h2>
           <p className="muted">
             Ask for changes to the plan or give an instruction. It can add, remove, move, or rewrite steps, change who does what, and add notes to steps. It never edits a result: it adds a note and suggests running the step again. Nothing changes until you apply it.
           </p>
@@ -107,7 +107,7 @@ export default function Coordinator({ ctx, onClose }: { ctx: Ctx; onClose: () =>
         </div>
       )}
       <Composer label="Your message" value={msg} onChange={setMsg} onSend={send} sendLabel="Send" placeholder="Use 14 January as the board date, then redo the document and the deck."
-        blocked={ctx.busy ? "Wait for the current run to finish." : ""}
+        blocked={ctx.askBusy ? "Wait for the current run to finish." : ""}
         menu={<select className="quiet-menu" aria-label="Who answers" value={role} onChange={(e) => setRole(e.target.value)}>
           <option value="">Default (the first role)</option>
           {team.map((t) => <option key={t.role} value={t.role}>{roleName(t.role)}, {provider(t.route)} {t.model}</option>)}

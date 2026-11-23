@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { dollarsLine, group, total, type UsageRow } from "../src/usage.ts";
+import { dollarsLine, group, projectSpend, projectSpendLine, smallMoney, total, type UsageRow } from "../src/usage.ts";
 
 const at = (y: number, m: number, d: number, h = 12) => new Date(y, m - 1, d, h).getTime() / 1000;
 const row = (o: Partial<UsageRow>): UsageRow => ({ at: at(2026, 11, 10), task: "t1", stage: "frame", role: "writer", route: "R12", model: "anthropic/claude-haiku-5.5", tokens: 100, dollars: 0.01, dollars_status: "reported", ...o });
@@ -27,7 +27,7 @@ test("days and months are local, newest first, and unknown figures are counted b
 
 test("roles use the given names, the plan has its own group, and the costliest comes first", () => {
   const roles = group(rows, "role", (r) => (r === "writer" ? "Writer" : "Checker"));
-  assert.deepEqual(roles.map((r) => r.label), ["Writer", "Coordinator plan", "Checker"]);
+  assert.deepEqual(roles.map((r) => r.label), ["Writer", "Planning", "Checker"]);
   assert.equal(roles[2].unknownDollars, 1);
 });
 
@@ -39,4 +39,17 @@ test("a total keeps unknown apart, and a line never shows unknown as zero", () =
   assert.equal(dollarsLine(0, 2, 2), "unknown");
   assert.equal(dollarsLine(0.004, 0, 1), "under $0.01");
   assert.equal(dollarsLine(0, 0, 0), "$0");
+});
+
+test("a project's spend leads in cents until it reaches a dollar, and a tiny cost is never shown as zero", () => {
+  assert.equal(smallMoney(0.03), "3¢");
+  assert.equal(smallMoney(0.004), "under 1¢");
+  assert.equal(smallMoney(0), "0¢");
+  assert.equal(smallMoney(1.2), "$1.20");
+  assert.equal(projectSpend(0.03, 5), "This project: 3¢ of $5.00");
+});
+
+test("a spending record that could not be read shows no amount, not 0 cents", () => {
+  assert.equal(projectSpendLine({ spent: 0, held: 0, cap: 5, locked: "unreadable" }), "Spending record unreadable");
+  assert.equal(projectSpendLine({ spent: 0.02, held: 0.01, cap: 5, locked: null }), "This project: 3¢ of $5.00");
 });

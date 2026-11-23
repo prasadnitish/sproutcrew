@@ -51,3 +51,30 @@ test('last activity reads as minutes, today, yesterday or a date, and nothing wh
   assert.equal(lastActivity(new Date(2026, 10, 3, 12, 0).getTime() / 1000, now), 'Nov 3');
   assert.equal(lastActivity(new Date(2025, 0, 3, 12, 0).getTime() / 1000, now), 'Jan 3, 2025');
 });
+
+test('a repeated brief gets its own name instead of colliding with an existing project', async () => {
+  const { uniqueName } = await import('../src/projects.ts');
+  assert.equal(uniqueName('harbor lane', []), 'harbor lane');
+  assert.equal(uniqueName('harbor lane', ['harbor lane']), 'harbor lane 2');
+  assert.equal(uniqueName('harbor lane', ['harbor lane', 'harbor lane 2']), 'harbor lane 3');
+  assert.equal(uniqueName('harbor lane', ['HARBOR LANE']), 'harbor lane 2', 'folders are case-insensitive on a Mac');
+  // The app's project names have no spaces, so the caller can choose the separator.
+  assert.equal(uniqueName('harbor-lane', ['harbor-lane', 'harbor-lane-2'], '-'), 'harbor-lane-3');
+  const long = 'a'.repeat(48);
+  const next = uniqueName(long, [long]);
+  assert.ok(next.length <= 48);
+  assert.notEqual(next, long);
+  assert.ok(next.endsWith(' 2'));
+  const tenth = uniqueName(long, [long, ...Array.from({ length: 8 }, (_, i) => `${'a'.repeat(46)} ${i + 2}`)]);
+  assert.ok(tenth.length <= 48 && tenth.endsWith(' 10'), tenth);
+});
+
+test('a brief of only emoji, stop words or symbols still gives a valid non-empty name', async () => {
+  const { suggestName } = await import('../src/projects.ts');
+  const valid = /^[A-Za-z0-9_-]{1,64}$/;
+  for (const brief of ['🍞 the a of', '🍞🍞🍞', '--- ---', '   ']) {
+    const name = suggestName('writing', brief);
+    assert.match(name, valid, brief);
+  }
+  assert.equal(suggestName('writing', '🍞 the a of'), 'writing');
+});

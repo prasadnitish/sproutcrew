@@ -2,6 +2,7 @@ use bff_core::{attention::Tracker, decision_inbox::Item, policy::Tier};
 fn item(id: &str, tier: Tier) -> Item {
     Item {
         revision: "scope-a".into(),
+        step_title: String::new(),
         project: "Private client".into(),
         stage: "draft".into(),
         id: id.into(),

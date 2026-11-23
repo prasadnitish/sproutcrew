@@ -445,6 +445,55 @@ impl Studio {
         Ok(failed)
     }
 
+    /// Writes down that the person pressed Stop on a run, with the step that most recently has a result.
+    pub fn record_stop(&self, now: u64) -> Result<(), String> {
+        let artifacts = self.project.artifacts()?;
+        let after = self.plan().and_then(|p| {
+            artifacts.iter().rev().find_map(|a| {
+                p.stages
+                    .iter()
+                    .find(|st| {
+                        Some(crate::app::artifact_name(&st.id).as_str()) == a["name"].as_str()
+                    })
+                    .map(|st| st.id.clone())
+            })
+        });
+        self.journal
+            .append("run.stopped", &json!({"after_stage": after}), now)?;
+        Ok(())
+    }
+
+    /// The run the person stopped, until a step starts again: `Some(after_stage)`, where `after_stage` is the
+    /// step that last had a result, or `None` when no step had one. A run that ended any other way, such as a step
+    /// that failed or one held for answers, is never reported here, because only Stop writes the record.
+    pub fn stopped_run(&self) -> Result<Option<Option<String>>, String> {
+        let mut stopped = None;
+        for e in self.journal.events()? {
+            match e.kind.as_str() {
+                "run.stopped" => {
+                    stopped = Some(e.payload["after_stage"].as_str().map(str::to_string))
+                }
+                "worker.dispatched" if e.payload["kind"] == "stage" => stopped = None,
+                _ => {}
+            }
+        }
+        // A step that was in flight when Stop was pressed may have been the last one. Nothing is left to run then.
+        if stopped.is_some() {
+            if let Some(plan) = self.plan() {
+                let artifacts = self.project.artifacts()?;
+                let has = |id: &str| {
+                    artifacts
+                        .iter()
+                        .any(|a| a["name"].as_str() == Some(crate::app::artifact_name(id).as_str()))
+                };
+                if plan.stages.iter().all(|st| has(&st.id)) {
+                    return Ok(None);
+                }
+            }
+        }
+        Ok(stopped)
+    }
+
     /// `(stage, what moved)` for each step whose latest run moved to its stand-in. A later run of the step clears it.
     pub fn stand_ins_used(&self) -> Result<Vec<(String, serde_json::Value)>, String> {
         let mut used: Vec<(String, serde_json::Value)> = Vec::new();
@@ -648,7 +697,22 @@ impl Studio {
             Some(e) => {
                 serde_json::from_value(e.payload["matrix"].clone()).map_err(|e| e.to_string())
             }
-            None => Ok(crate::policy::defaults(plan)),
+            None => self.starting_policy(plan),
+        }
+    }
+
+    /// The policy a plan starts with: the built-in one, tightened by the defaults saved when this project was made
+    /// (`policy.defaults`). A project made before defaults existed has no such entry and keeps the built-in one.
+    fn starting_policy(&self, plan: &Plan) -> Result<crate::policy::Matrix, String> {
+        let base = crate::policy::defaults(plan);
+        let events = self.journal.events()?;
+        match events.iter().rev().find(|e| e.kind == "policy.defaults") {
+            Some(e) => {
+                let d: crate::policy_defaults::Defaults =
+                    serde_json::from_value(e.payload.clone()).map_err(|e| e.to_string())?;
+                crate::policy_defaults::apply(&base, &d)
+            }
+            None => Ok(base),
         }
     }
 
@@ -845,6 +909,8 @@ impl Studio {
             .append("plan.set", &payload, now)
             .map_err(|e| vec![e])?;
         self.plan = Some(plan);
+        self.lift_stale_do_not_send(now).map_err(|e| vec![e])?;
+        self.lift_stale_answers_wait(now).map_err(|e| vec![e])?;
         if self
             .journal
             .events()
@@ -855,9 +921,61 @@ impl Studio {
             let plan = self.plan.as_ref().expect("just set");
             let matrix = self.policy().map_err(|e| vec![e])?;
             if crate::policy::validate(plan, &matrix).is_err() {
-                self.set_policy(crate::policy::defaults(plan), now)
-                    .map_err(|e| vec![e])?;
+                let start = self.starting_policy(plan).map_err(|e| vec![e])?;
+                self.set_policy(start, now).map_err(|e| vec![e])?;
             }
+        }
+        Ok(())
+    }
+
+    /// A step held back because a check said do not send is let go when the plan no longer has a check that asks for
+    /// a verdict before it, such as after the check was taken out or its instructions lost the ask. Nothing could
+    /// lift that block otherwise, because the check's result is no longer read for a verdict.
+    fn lift_stale_do_not_send(&mut self, now: u64) -> Result<(), String> {
+        let Some(plan) = self.plan.as_ref() else {
+            return Ok(());
+        };
+        let stale: Vec<String> = self
+            .blocked
+            .iter()
+            .filter(|(id, why)| {
+                why == crate::verdict::DO_NOT_SEND_REASON
+                    && !plan.ancestors(id).iter().any(|a| {
+                        plan.stages
+                            .iter()
+                            .any(|s| &s.id == a && crate::verdict::asks_for_verdict(&s.guide))
+                    })
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in stale {
+            self.unblock_stage(&id, now)?;
+        }
+        Ok(())
+    }
+
+    /// A step held for the person's answers is let go when the plan no longer has a step before it that asks for
+    /// them, such as after the check of what is missing was taken out. Nothing could lift the hold otherwise, because
+    /// the form that answers it comes from that step's result.
+    fn lift_stale_answers_wait(&mut self, now: u64) -> Result<(), String> {
+        let Some(plan) = self.plan.as_ref() else {
+            return Ok(());
+        };
+        let stale: Vec<String> = self
+            .blocked
+            .iter()
+            .filter(|(id, why)| {
+                why == crate::facts::WAITING_REASON
+                    && !plan.ancestors(id).iter().any(|a| {
+                        plan.stages
+                            .iter()
+                            .any(|s| &s.id == a && crate::facts::asks_for_facts(&s.guide))
+                    })
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in stale {
+            self.unblock_stage(&id, now)?;
         }
         Ok(())
     }

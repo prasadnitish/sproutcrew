@@ -1,10 +1,13 @@
 import type { UsageRow } from "./usage";
+import type { Check as SecondCheck } from "./verdict";
+import { Question, WAITING } from "./facts";
 import { plainWhy } from "./failures";
 // The only file that talks to the backend. Outside the Tauri shell it falls back to an in-memory mock,
 // so the screens can be checked in a plain browser. The mock is labelled and never claims a live run.
 
 import { readySteps } from "./graph";
 import { failedRun } from "./runs";
+import { findKeyShape, KEY_IN_BRIEF } from "./keyshape";
 
 export type EngineMode = "replay" | "live";
 export type StepModel = { route: string; model: string; effort: string };
@@ -82,6 +85,10 @@ export type State = {
   problems: string[];
   gate: "allowed" | "not_approved" | "plan_changed";
   approved_by: string | null;
+  /** The version an approval would cover, read with this state. The plan card sends it back when approving. */
+  approval_hash: string | null;
+  /** The results as they are in this state: what "Mark reviewed" covers, and whether it is done. */
+  result_review?: { version: string; finished: boolean; reviewed: boolean };
   policy?: ActionPolicy | null;
   code_review?: { items: CodeDraft[]; head: string | null };
   artifacts: Artifact[];
@@ -97,6 +104,10 @@ export type State = {
   budget: Budget;
   project_limit?: ProjectLimit;
   usage_rows?: UsageRow[];
+  /** A run is going now: a run of steps, or one step in flight. A page that was left and opened again reads this. */
+  run_active?: boolean;
+  /** Set when the person pressed Stop on a run and no step has started since. */
+  stopped?: { after_stage: string | null } | null;
   /** The project's template, or `null` for none. */
   look?: TemplateSaved | null;
   timings: Record<string, { seconds: number; route: string; model: string }>;
@@ -111,6 +122,11 @@ export type State = {
   failures?: Record<string, string>;
   /** Which limit stopped each failed step: per_minute, daily_cap, upstream_busy, out_of_credits, key_limit or other. */
   failure_kinds?: Record<string, string>;
+  /** What each second check that was asked for a verdict said, by step. A step that was not asked is left out, so an
+   *  older project shows none. A check that gave no verdict has `verdict: null`. */
+  checks?: Record<string, SecondCheck>;
+  /** Steps held back, with the reason, such as the finish step after a check said do not send. */
+  blocked?: Record<string, string>;
   code_files?: { path: string; bytes: number }[];
   app?: { page: boolean; opens: boolean; why: string | null };
   links?: { from: string[]; to: string[] };
@@ -159,6 +175,8 @@ async function tauriRun<T>(cmd: string, args: Record<string, unknown>, onEvent: 
 // ---- mock ----
 type MockProject = {
   look?: State["look"];
+  /** The results version the person marked reviewed in the preview. */
+  reviewed?: string;
   links?: string[];
   archived?: boolean;
   brief: string;
@@ -171,6 +189,10 @@ type MockProject = {
   budget: { limit: number; perTask: number; spent: number } | null;
   posts: Post[];
   failures?: Record<string, [string, string]>;
+  /** Set when the person pressed Stop and no step has started since. */
+  stopped?: boolean;
+  /** Steps held back, with the reason: the ones waiting for the person's answers. */
+  blocked?: Record<string, string>;
   matrix?: Record<string, Record<string, Permission>>;
   writes: WriteItem[];
   sources: Source[];
@@ -181,7 +203,14 @@ type MockProject = {
   coord: Turn[];
 };
 const mock = { projects: {} as Record<string, MockProject>, current: "", presentation: false, keys: new Set<string>(), projectCap: 5, memory: [] as Note[], sharedTemplates: [] as TemplateSaved[], ownAi: null as null | { address: string; model: string; has_key: boolean }, runningCode: false };
-const hashPlan = (p: Plan) => JSON.stringify(p);
+/** The preview's results version and whether it was marked reviewed, as the core reports them. */
+const mockReview = (p: MockProject) => {
+  const version = hashPlan({ artifacts: p.artifacts } as unknown as Plan);
+  const finished = !!p.plan && p.plan.stages.length > 0 && p.plan.stages.every((s) => p.artifacts.some((x) => x.name === s.id));
+  return { version, finished, reviewed: finished && p.reviewed === version };
+};
+/** The preview's stand-in for the approval hash: 64 hex characters that change whenever the plan does. */
+const hashPlan = (p: Plan) => { let h = 2166136261; for (const ch of JSON.stringify(p)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } return h.toString(16).padStart(8, "0").repeat(8); };
 const MODELS: Record<string, string[]> = {
   R1: ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna"],
   R2: ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"],
@@ -216,7 +245,7 @@ const MOCK_CATALOG = (() => {
   };
 })();
 /** The app's default policy for the design preview: writers may change files and must ask to send, delete or install;
- *  checkers only read. Running commands is never allowed. */
+ *  the second check only reads. Running commands is never allowed. */
 function mockMatrix(p: MockProject): Record<string, Record<string, Permission>> {
   if (p.matrix) return structuredClone(p.matrix);
   return Object.fromEntries((p.plan?.team ?? []).map((t) => {
@@ -233,6 +262,17 @@ function mockPolicy(p: MockProject): ActionPolicy {
 }
 
 /** The app's own sentences for each limit, so the design preview shows exactly what the app would. */
+/** A finished writing project in the browser preview has two missing details until the person answers them or finishes
+ *  without them. `?gaps=0` turns this off. The real app counts the `[NEEDED: ...]` markers in the finished text. */
+function mockGaps(p: MockProject): { what: string }[] {
+  const off = typeof location !== "undefined" && new URLSearchParams(location.search).get("gaps") === "0";
+  const finished = !!p.plan && p.plan.stages.every((st) => p.artifacts.some((x) => x.name === st.id));
+  if (off || !finished || !p.plan?.stages.some((st) => st.id === "finish")) return [];
+  const latest = [...p.notes].reverse().find((n) => n.stage === "finish" && (n.text.startsWith("Details from the person:") || n.text.startsWith("Write around these missing details")));
+  return latest?.text.startsWith("Details from the person:") ? [] : [{ what: "the price per seat" }, { what: "the start date" }];
+}
+const mockAccepted = (p: MockProject) => [...p.notes].reverse().find((n) => n.stage === "finish" && (n.text.startsWith("Details from the person:") || n.text.startsWith("Write around these missing details")))?.text.startsWith("Write around") ?? false;
+
 const MOCK_FAILURES: Record<string, string> = {
   per_minute: "OpenRouter's free models allow 20 requests a minute, and this step hit that limit. It was tried 3 times. Try again in a minute, or choose another model.",
   daily_cap: "Today's free allowance on OpenRouter is used up: 50 requests a day, or 1,000 once the account has bought $10 of credit. Choose another model, or add credit to raise the allowance.",
@@ -244,7 +284,7 @@ const MOCK_FAILURES: Record<string, string> = {
 const ROLE_TABLE: Record<string, [string, string, "writing" | "checking"]> = {
   web_researcher: ["Web researcher", "Searches the public web using only your brief. It never sees your files.", "writing"],
   analyst: ["Analyst", "Frames the problem and sets out the options from the files, with the evidence for and against each.", "writing"],
-  numbers: ["Numbers checker", "Recomputes every figure and unit before anyone builds on them, and says which are wrong or not in the files.", "checking"],
+  numbers: ["Numbers check", "Recomputes every figure and unit before anyone builds on them, and says which are wrong or not in the files.", "checking"],
   strategist: ["Strategist", "Turns the checked analysis into one recommendation, a 90-day plan, and the measures that show it is working.", "writing"],
   editor: ["Editor", "Turns the checked work into the document the client reads: plain language, no internal notes, every number confirmed.", "writing"],
   presenter: ["Presenter", "Builds the board deck and the hardest questions a director will ask, each with a short answer.", "writing"],
@@ -265,8 +305,8 @@ const ROLE_TABLE: Record<string, [string, string, "writing" | "checking"]> = {
   customer: ["Customer evidence analyst", "Reads the customer feedback, counts what it says, and says when there is too little to go on.", "checking"],
   ideas_a: ["First idea maker", "Forms its own ideas without seeing the other side's, then argues against the other side's best ones.", "writing"],
   ideas_b: ["Second idea maker", "Forms its own ideas without seeing the other side's, then argues against the other side's best ones.", "checking"],
-  dissent: ["Dissent checker", "Reads what the merge dropped and restores anything dropped without a good reason.", "checking"],
-  reviewer: ["Final reviewer", "Reads everything together, checks it against the files and the brief, and gives the verdict: ship, fix first, or do not ship.", "checking"],
+  dissent: ["Dissent check", "Reads what the merge dropped and restores anything dropped without a good reason.", "checking"],
+  reviewer: ["Second check", "Reads everything together, checks it against the files and the brief, and says whether it is ready. It lists what to fix and does not rewrite the work.", "checking"],
 };
 const roleInfo = (role: string): RoleInfo | null => {
   const r = ROLE_TABLE[role];
@@ -363,11 +403,12 @@ function mockState(engine: string): State {
     code_files: p.artifacts.some((x) => x.name === "build") ? [{ path: "README.md", bytes: 4757 }, { path: "app.js", bytes: 16561 }, { path: "index.html", bytes: 2723 }] : [],
     app: p.artifacts.some((x) => x.name === "build") ? { page: true, opens: true, why: null } : { page: false, opens: false, why: null },
     links: { from: (p.links ?? []).filter((n) => mock.projects[n] && !mock.projects[n].archived), to: Object.keys(mock.projects).filter((n) => !mock.projects[n].archived && mock.projects[n].links?.includes(mock.current)) },
-    approved_by: p.approvedHash ? "Nitish" : null, artifacts: structuredClone(p.artifacts),
+    approved_by: p.approvedHash ? "Preview user" : null, approval_hash: p.plan ? hashPlan(p.plan) : null, result_review: mockReview(p), artifacts: structuredClone(p.artifacts),
     steps: p.artifacts.map((a) => ({ step: a.from_task, tokens: "unknown", plan_window: "unknown" })),
     meters: { tokens: n ? "905858" : "unknown", plan_window: n ? "claude 27%, codex 2%" : "unknown", api_dollars: "unknown" }, engine,
     review: n ? p.review : {}, budget,
     usage_rows: mockUsage(p.artifacts.length, p.plan),
+    stopped: p.stopped ? { after_stage: null } : null,
     look: p.look ?? null,
     project_limit: { cap: mock.projectCap, spent: n ? 0.0118 : 0, held: 0, available: mock.projectCap - (n ? 0.0118 : 0), unknown_charges: n ? 1 : 0, locked: null },
     timings: Object.fromEntries(p.artifacts.map((a) => [a.from_task, { seconds: 0.5, route: "R1", model: "replay" }])),
@@ -380,8 +421,21 @@ function mockState(engine: string): State {
     policy: p.plan ? mockPolicy(p) : null,
     failures: Object.fromEntries(Object.entries(p.failures ?? {}).map(([k, [why]]) => [k, why])),
     failure_kinds: Object.fromEntries(Object.entries(p.failures ?? {}).filter(([, [, kind]]) => kind).map(([k, [, kind]]) => [k, kind])),
+    // The preview's review step asks for a verdict when the plan has a finish step after it, as the real ones do.
+    checks: p.plan?.stages.some((x) => x.id === "finish") && p.artifacts.some((x) => x.name === "review")
+      ? { review: { verdict: "fix_first", flagged: MOCK_FLAGGED } }
+      : {},
+    blocked: structuredClone(p.blocked ?? {}),
   };
 }
+
+/** What the check of what is missing asks in the preview: one answer found in a file, one not. */
+const MOCK_QUESTIONS: Question[] = [
+  { ask: "What does the dough class cost?", from: "pricing-notes.txt", suggested: "$45 a person" },
+  { ask: "When does the next class start?", from: null, suggested: null },
+];
+
+const MOCK_FLAGGED = ["\"Starting next month\" has no date in the brief. Say \"soon\".", "The address is not in the brief. Remove it.", "The price is not in any source. Cut it."];
 
 const SAMPLE_FINDINGS = [
   { id: "a", claim: "The monthly total should be $20, not $25.", evidence: "Line 4: 4 licenses at $5 each.", decision: null, reason: null },
@@ -413,11 +467,12 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
       const ids = a.sourceIds as string[];
       if (new Set(ids).size !== ids.length || ids.some((id) => !original.sources.some((source) => source.id === id))) throw "a source is missing or repeated";
       const sources = structuredClone(original.sources.filter((source) => ids.includes(source.id)));
-      await mockCall("create_project", { name, brief: a.brief });
+      await mockCall("create_project", { name, brief: a.brief, allowKeyShape: a.allowKeyShape });
       mock.projects[name].sources = sources;
       return undefined as T;
     }
     case "create_project":
+      if (!a.allowKeyShape && (findKeyShape(String(a.brief ?? "")) || findKeyShape(String(a.name ?? ""), true))) throw `${KEY_IN_BRIEF} This looks like a key. Keys go in the Connect box, not the brief.`;
       mock.projects[a.name as string] = { brief: a.brief as string, plan: null, approvedHash: null, artifacts: [], texts: {}, review: {}, round: {}, budget: null, posts: [], writes: [], sources: [], selected: { skills: [], mcp: [] }, rules: "", notes: [], chats: {}, coord: [] };
       mock.current = a.name as string;
       return undefined as T;
@@ -461,7 +516,20 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
       return undefined as T;
     }
     case "set_stand_ins": if (p.plan) p.plan = { ...p.plan, fallbacks: a.on ? p.plan.team.filter((t) => t.role !== "reviewer" && t.role !== "numbers").map((t) => ({ ...t, route: t.route === "R1" ? "R2" : "R1", model: t.route === "R1" ? "claude-sonnet-5-5" : "gpt-6.1-terra" })) : [] }; return undefined as T;
-    case "approve": if (!p.plan) throw "there is no plan to approve"; p.approvedHash = hashPlan(p.plan); return undefined as T;
+    case "mark_reviewed": {
+      if (a.project !== mock.current) throw `This decision is for ${a.project}, but ${mock.current} is open. Nothing was decided.`;
+      const r = mockReview(p);
+      if (!r.finished) throw "Nothing is finished yet, so there is nothing to review.";
+      if (a.version !== r.version) throw "The results changed after you looked at them. Nothing was marked. Look again, then mark them reviewed.";
+      p.reviewed = r.version; return undefined as T;
+    }
+    case "approve": {
+      if (!p.plan) throw "there is no plan to approve";
+      if (a.project !== mock.current) throw `This approval is for ${a.project}, but ${mock.current} is open. Nothing was approved.`;
+      const now = hashPlan(p.plan);
+      if (a.hash !== now) throw `The plan changed after you read it. You read ${a.hash ? "version " + String(a.hash).slice(0, 4) + " " + String(a.hash).slice(4, 8) : "no version"}, and it is now version ${now.slice(0, 4)} ${now.slice(4, 8)}. Nothing was approved and nothing ran. Read it again before you approve.`;
+      p.approvedHash = now; return undefined as T;
+    }
     case "read_artifact": return scrub((p.texts[a.file as string] ?? (() => { throw "no such artifact"; })())) as T;
     case "check_assignment": {
       if (a.route === "R13") { if (!/^[A-Za-z0-9._:/@+-]{1,128}$/.test(String(a.model))) throw `${JSON.stringify(a.model)} is not a usable model name. Type it exactly as your service lists it, such as llama3.3.`; return undefined as T; }
@@ -473,10 +541,11 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
     }
     case "route_models": return (a.route === "R13" ? (mock.ownAi ? [mock.ownAi.model] : []) : MODELS[a.route as string] ?? []) as T;
     case "default_reviewer": return [a.route, a.route === "R3" ? "claude-sonnet-5-5" : a.route === "R5" ? "gpt-6-luna" : "mistralai/mistral-small-2603", "high"] as T;
-    case "model_catalog": return MOCK_CATALOG as T;
+    case "model_catalog": await new Promise((r) => setTimeout(r, 1000)); return MOCK_CATALOG as T; // a slow first fetch, to see the waiting states
     case "cited_pages": return [] as T;
     case "export_log": return "~/Library/Application Support/app.sproutcrew.mac/log/sproutcrew-log.txt" as T;
     case "plan_preflight": {
+      await new Promise((r) => setTimeout(r, 1000)); // the app waits for model prices before it answers
       // The design preview prices each step at 60,000 tokens in and 8,000 out, like the app's OpenRouter bounds.
       const team = p.plan?.team ?? [];
       const stages = p.plan?.stages ?? [];
@@ -528,8 +597,50 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
       return undefined as T;
     }
     case "export_usage_csv": return "~/Library/Application Support/app.sproutcrew.mac/projects/sample/exports/usage-1.csv" as T;
+    case "policy_overview": {
+      const rows = Object.entries(mock.projects).filter(([, x]) => !x.archived).map(([name, x]) => {
+        if (!x.plan) return { name, plan: false };
+        const g = mockPolicy(x).guardrails!;
+        const d = mockDefaults;
+        const looser: string[] = [], stricter: string[] = [];
+        for (const k of ["send_outside", "delete_files", "install_software"] as const) {
+          const want = d[k], has = g[k];
+          if (want === "never" && has !== "never") looser.push(k); else if (want === "ask" && has !== "ask_each_time") stricter.push(k);
+        }
+        const pv = x.plan.privacy ?? "standard";
+        if (pv === "standard" && d.privacy === "no_retention") looser.push("privacy"); else if (pv === "no_retention" && d.privacy === "standard") stricter.push("privacy");
+        const approved = !!x.approvedHash && x.approvedHash === hashPlan(x.plan);
+        return { name, plan: true, guardrails: g, privacy: pv, fit: { looser, stricter }, approved, hash: approved ? `${x.approvedHash!.slice(0, 4)} ${x.approvedHash!.slice(4, 8)}` : null };
+      });
+      return { defaults: { ...mockDefaults }, projects: rows, errors: [] } as T;
+    }
+    case "set_policy_defaults": {
+      const names = a.tighten as string[];
+      for (const n of names) if (!mock.projects[n]) throw `There is no project named ${n}. Nothing was saved.`;
+      mockDefaults = { ...(a.defaults as typeof mockDefaults) };
+      const changed: string[] = [];
+      for (const n of names) {
+        const x = mock.projects[n];
+        if (!x.plan) continue;
+        const m = mockMatrix(x);
+        let did = false;
+        for (const [k, tool] of [["send_outside", "external_send"], ["delete_files", "delete"], ["install_software", "dependency_install"]] as const) {
+          if (mockDefaults[k] !== "never") continue;
+          for (const role of Object.keys(m)) if (roleInfo(role)?.side !== "checking" && m[role][tool] !== "deny") { m[role][tool] = "deny"; did = true; }
+        }
+        if (did) { x.matrix = m; x.approvedHash = null; changed.push(n); }
+      }
+      return changed as T;
+    }
     case "usage_everywhere": return { projects: Object.entries(mock.projects).map(([name, x]) => ({ project: name, rows: mockUsage(x.artifacts.length, x.plan) })), unreadable: [] } as T;
-    case "raise_project_limit": if ((a.dollars as number) <= mock.projectCap) throw "the new cap $" + (a.dollars as number).toFixed(2) + " is not higher than the current cap $" + mock.projectCap.toFixed(2); mock.projectCap = a.dollars as number; return undefined as T;
+    case "set_project_limit": case "raise_project_limit": {
+      const d = a.dollars as number;
+      if (!Number.isFinite(d) || d <= 0) throw "Enter an amount in dollars, like 0.50.";
+      const floor = p.artifacts.length ? 0.0118 : 0;
+      if (d < floor) throw `You've already spent ${Math.ceil(floor * 100)}¢ on this project, so the limit can't go below that.`;
+      mock.projectCap = d;
+      return undefined as T;
+    }
     case "raise_budget": if (!p.budget || (a.newLimit as number) <= p.budget.limit) throw "the new limit must be above the current one"; p.budget.limit = a.newLimit as number; return undefined as T;
     case "decide": {
       const f = p.review[a.artifact as string]?.findings.find((x) => x.id === a.finding);
@@ -558,7 +669,8 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
       if (!String(a.path).startsWith("/")) throw "Give the full path, starting with /";
       return [{ name: "claude", path: "/Users/you/.local/bin/claude", version: "2.1.316 (Claude Code)", chosen: null }, { name: "codex", path: a.path, version: "codex-cli 0.166.0", chosen: a.path }] as T;
     case "attention_status":
-      return { enabled: false, count: 0, errors: 0, last_error: null, open_inbox: false } as T;
+      // The sample queue under ?board has seven items and one project it could not read, as the board shows.
+      return { enabled: false, count: new URLSearchParams(window.location.search).has("board") ? 7 : 0, errors: 0, last_error: null, open_inbox: false } as T;
     case "set_notifications":
     case "test_notification":
       throw "Mac notifications are available in the native app; this is a browser preview.";
@@ -600,9 +712,42 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
       p.selected.skills = p.selected.skills.filter((n) => n !== a.name);
       p.selected.mcp = p.selected.mcp.filter((n) => n !== a.name);
       return undefined as T;
-    case "decision_inbox":
-      return { items: [], errors: [] } as T;
+    case "decided_list": {
+      // The preview's Decided: the approvals and reviews made in it, newest first. Under ?board, a sample.
+      if (new URLSearchParams(window.location.search).has("board")) {
+        const t = Math.floor(Date.now() / 1000);
+        return { items: [
+          { project: "larkspur-case-study", at: t - 1500, kind: "plan.approved", what: "Approved the plan", by: "Preview user", version: "4be077c1" },
+          { project: "harbor-lane-article", at: t - 7200, kind: "result.reviewed", what: "Marked the results reviewed", by: "Preview user", version: "2a6e4471" },
+          { project: "tide-chart-app", at: t - 86400, kind: "review.decided", what: "Rejected finding f2 on build (No source)", by: null, version: null },
+        ], errors: [] } as T;
+      }
+      const items = Object.entries(mock.projects).filter(([, pr]) => !pr.archived).flatMap(([name, pr]) => [
+        ...(pr.approvedHash ? [{ project: name, at: Math.floor(Date.now() / 1000) - 60, kind: "plan.approved", what: "Approved the plan", by: "Preview user", version: pr.approvedHash }] : []),
+        ...(pr.reviewed ? [{ project: name, at: Math.floor(Date.now() / 1000), kind: "result.reviewed", what: "Marked the results reviewed", by: "Preview user", version: pr.reviewed }] : []),
+      ]).sort((x, y) => y.at - x.at);
+      return { items, errors: [] } as T;
+    }
+    case "decision_inbox": {
+      // Opened with ?board, the preview seeds sample projects and lists what waits in them, so each decision can be made.
+      if (!new URLSearchParams(window.location.search).has("board")) return { items: [], errors: [] } as T;
+      await seedBoard();
+      const items: unknown[] = [];
+      for (const [name, pr] of Object.entries(mock.projects)) {
+        if (pr.archived || !pr.plan) continue;
+        const done = pr.plan.stages.filter((st) => pr.artifacts.some((x) => x.name === st.id)).length;
+        const approved = !!pr.approvedHash && pr.approvedHash === hashPlan(pr.plan);
+        if (!approved && done < pr.plan.stages.length) items.push({ project: name, stage: pr.plan.stages[0].id, id: "plan", tier: "consequential", kind: "plan", title: "Review and approve the current plan and permissions", anchor: "plan-approval", step_title: "" });
+        for (const [st, [why]] of Object.entries(pr.failures ?? {})) items.push({ project: name, stage: st, id: `failed-${st}`, tier: "consequential", kind: "failure", title: `A step stopped: ${why}`, anchor: `step-${st}`, step_title: pr.plan.stages.find((x) => x.id === st)?.title ?? "" });
+        if (pr.stopped && approved) items.push({ project: name, stage: "", id: "stopped", tier: "reversible", kind: "stopped", title: `Stopped by you after step ${done} of ${pr.plan.stages.length}`, anchor: "run-status", step_title: "" });
+        for (const [art, r] of Object.entries(pr.review)) for (const f of r.findings.filter((x) => !x.decision)) items.push({ project: name, stage: art, id: `${art}:${f.id}`, tier: "reversible", kind: "finding", title: f.claim, anchor: `finding-${art}-${f.id}`, step_title: "" });
+        if (done === pr.plan.stages.length && pr.plan.stages.length > 0 && !mockReview(pr).reviewed) items.push({ project: name, stage: "", id: "finished", tier: "reversible", kind: "finished", title: "Review the finished work", anchor: "final-files", step_title: "" });
+      }
+      items.push({ project: "tide-chart-app", stage: "build", id: "build-1", tier: "destructive", kind: "code", title: "Review code diff (pending)", anchor: "code-build-1", step_title: "Build the chart" });
+      return { items, errors: [{ project: "old-pitch-deck", error: "its journal could not be read" }] } as T;
+    }
     case "export_run_report":
+    case "export_run_report_raw":
       throw "Run reports require the native Rust app. This is a browser layout preview.";
     case "stage_code_draft":
     case "decide_code":
@@ -623,11 +768,13 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
     case "export_package":
       if (!p.artifacts.length) throw "there is nothing to export yet";
       return { path: "~/Library/Application Support/app.sproutcrew.mac/projects/export/package-1", files: 8, final: p.plan?.stages.find((x) => x.id === "polish_document")?.title ?? null, notes: [], warnings: [], broken_links: [], missing: ["sources"], incomplete: [] } as T;
-    case "start_preview": throw "This project has no prototype yet. Add a step for the Builder that asks for one, in Shape the steps before you approve the plan, or ask the coordinator to add it.";
+    case "start_preview": throw "This project has no prototype yet. Add a step for the Builder that asks for one, in Shape the steps before you approve the plan, or ask for a change to add it.";
     case "use_cases": return USE_CASES.filter((c) => mock.runningCode || c.id !== "app_development") as T;
     case "google_docs_status": return { available: false, connected: false } as T;
     case "connect_google_docs": case "disconnect_google_docs": case "read_google_doc":
       throw "Google Docs works in the native app; this is a browser preview.";
+    case "path_info": // The browser has no disk to look at, so a name with a dot is a 12 KB file and any other is a folder.
+      return (a.paths as string[]).map((v) => { const name = v.replace(/\/+$/, "").split("/").pop() ?? v; const folder = !name.includes("."); return { name, size: folder ? null : 12288, is_dir: folder }; }) as T;
     case "keynote_installed": return true as T;
     case "set_keynote": {
       if (!p.plan) throw ["there is no plan"];
@@ -690,14 +837,19 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
       const d = a.documentStep as string | null;
       const k = a.deckStep as string | null;
       if (!d && !k) throw "choose a step for the document or for the deck";
-      const base = `/Users/you/exports/client-1/${mock.current}`;
-      return { folder: "/Users/you/exports/client-1", files: [...(d ? [{ kind: "word", path: `${base}-document.docx` }, { kind: "pdf", path: `${base}-document.pdf` }] : []), ...(k ? [{ kind: "deck", path: `${base}-deck.pptx` }] : [])], notes: [] } as T;
+      const folder = `/Users/you/Documents/SproutCrew/${mock.current}`;
+      const base = `${folder}/${mock.current}`;
+      return { folder, files: [...(d ? [{ kind: "word", path: `${base}-document.docx` }, { kind: "pdf", path: `${base}-document.pdf` }] : []), { kind: "deck", path: `${base}-deck.pptx` }], notes: [] } as T;
     }
     case "final_files": {
       const done = !!p.plan && p.plan.stages.every((st) => p.artifacts.some((x) => x.name === st.id));
-      const base = "/Users/you/exports/final-1/project";
-      const deck = p.plan?.stages.some((st) => st.id === "finish_deck");
-      return { files: done ? [{ kind: "word", path: `${base}-document.docx` }, { kind: "pdf", path: `${base}-document.pdf` }, ...(deck ? [{ kind: "deck", path: `${base}-deck.pptx` }] : [])] : [], notes: [], open: "" } as T;
+      const folder = `/Users/you/Documents/SproutCrew/${mock.current}`;
+      const base = `${folder}/${mock.current}`;
+      const files = done ? [{ kind: "word", path: `${base}-document.docx` }, { kind: "pdf", path: `${base}-document.pdf` }, { kind: "deck", path: `${base}-deck.pptx` }] : [];
+      const gaps = mockGaps(p);
+      const held = gaps.length > 0 && !mockAccepted(p);
+      const accepted = gaps.length > 0 && !held;
+      return { files: held ? [] : files, folder: held || !done ? null : folder, notes: [], open: "", gaps: accepted ? [] : gaps, left_out: accepted ? gaps : [], accepted, note_steps: gaps.length ? ["finish"] : [], rerun: gaps.length ? ["finish"] : [] } as T;
     }
     case "open_export": return undefined as T;
     case "reveal_export": return undefined as T;
@@ -706,8 +858,10 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
         name,
         brief: pr.brief.replace(/\s+/g, " ").slice(0, 160),
         steps_done: new Set(pr.artifacts.map((x) => x.name)).size,
+        reviewed: mockReview(pr).reviewed,
         steps_total: pr.plan?.stages.length ?? 0,
         approved: pr.approvedHash !== null,
+        ...(mockGaps(pr).length && !mockAccepted(pr) ? { state: "needs_details", details_missing: mockGaps(pr).length } : {}),
         outcome: pr.plan ? (pr.plan.stages.some((x) => x.id === "outline") ? "Writing & editing" : pr.plan.stages.some((x) => x.id === "frame") ? "Brainstorm" : "Case study") : null,
         last_at: Math.floor(Date.now() / 1000) - 600,
         archived: !!pr.archived,
@@ -785,7 +939,7 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
       return (t ? { text: t, at: Date.now(), sha256: "mock" } : null) as T;
     }
     case "export_decision_log": {
-      const text = `# Decision log\n\nBuilt just now from this project's own records. No model wrote this log.\n\n**Brief.** ${p.brief}\n${p.rules ? `\n**Rules for this exercise:**\n\n> ${p.rules}\n` : ""}\n## Part 1. What the checkers said and what changed after\n\nNo checking step has run yet.\n`;
+      const text = `# Decision log\n\nBuilt just now from this project's own records. No model wrote this log.\n\n**Brief.** ${p.brief}\n${p.rules ? `\n**Rules for this exercise:**\n\n> ${p.rules}\n` : ""}\n## Part 1. What the second check said and what changed after\n\nNo checking step has run yet.\n`;
       return { path: "~/Library/Application Support/app.sproutcrew.mac/projects/export/decision-log-1.md", text } as T;
     }
     case "remove_note": p.notes = p.notes.filter((x) => x.id !== a.id); return undefined as T;
@@ -831,28 +985,45 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
     }
     case "ready_stages": {
       const stages = p.plan?.stages ?? [];
-      return readySteps(stages, p.artifacts.map((x) => x.name)) as T;
+      return readySteps(stages, p.artifacts.map((x) => x.name)).filter((id) => !p.blocked?.[id]) as T;
     }
-    case "stop_run": return undefined as T;
+    case "fact_questions": return (Object.values(p.blocked ?? {}).includes(WAITING) ? structuredClone(MOCK_QUESTIONS) : []) as T;
+    case "answer_facts": {
+      const answers = a.answers as (string | null)[];
+      if (!Object.values(p.blocked ?? {}).includes(WAITING)) throw "There are no questions waiting for answers.";
+      if (answers.length !== MOCK_QUESTIONS.length) throw "The answers do not match the questions. Close this and open it again.";
+      if (answers.some((x) => x && /password|secret:|sk-[a-z0-9]{8,}/i.test(x))) throw "This answer looks like it holds a password, so it wasn't saved. Please reword it.";
+      const lines = MOCK_QUESTIONS.flatMap((q, i) => (answers[i]?.trim() ? [`- Question: ${q.ask} Answer: ${answers[i]!.trim()}`] : []));
+      if (lines.length) {
+        const later = (p.plan?.stages ?? []).filter((x) => x.id !== "facts" && x.id !== "web_research").map((x) => x.id);
+        for (const stage of later) p.notes.push({ id: `n${p.notes.length + 1}`, stage, text: `Facts from the person, given before the draft was written. Use them where the piece needs them, and do not mark them [NEEDED]:\n${lines.join("\n")}`, at: Date.now() });
+      }
+      p.blocked = {};
+      return undefined as T;
+    }
+    case "begin_run": case "end_run": return undefined as T;
+    case "stop_run": { if (a.steps) mock.projects[mock.current].stopped = true; return undefined as T; }
     case "use_workflow": {
       const author = a.author as string[];
       const reviewer = a.reviewer as string[];
       const u = USE_CASES.find((x) => x.id === a.name);
       if (!u) throw `${a.name} is not a use case`;
       if (author[0] === reviewer[0] && !["R3", "R5", "R8", "R9", "R10", "R11", "R12"].includes(author[0])) throw `the author and the reviewer are both on ${author[0]}. Put the reviewer on a different route`;
+      const checksFacts = ["writing", "proposal", "research_brief"].includes(u.id);
       p.plan = {
         brief: p.brief,
-        stages: u.steps.map((title, i) => {
+        stages: [...(checksFacts ? [{ id: "facts", title: "Check what's missing", owner_role: "writer", guide: "Read the brief and the files. List up to five facts that the piece needs and only the person can know." }] : []), ...u.steps.map((title, i) => {
           const id = STEP_IDS[u.id][i];
-          const after = AFTER[u.id]?.[id];
+          const after = AFTER[u.id]?.[id] ?? (checksFacts && i === 0 ? ["facts"] : undefined);
           return { id, title, owner_role: u.owners[i], guide: "Guide text.", ...(after ? { after } : {}) };
-        }),
+        })],
         team: u.team.map((r) => {
           const c = r.side === "writing" ? author : reviewer;
           return { role: r.role, route: c[0], model: c[1], effort: c[2] };
         }),
       };
       p.approvedHash = null;
+      p.blocked = {};
       return undefined as T;
     }
     case "outbox_draft": {
@@ -889,7 +1060,7 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
 async function mockWave<T>(a: Record<string, unknown>, onEvent: (e: RunEvent) => void): Promise<T> {
   const p = mock.projects[mock.current];
   const ids = a.stageIds as string[];
-  const ready = readySteps(p.plan?.stages ?? [], p.artifacts.map((x) => x.name));
+  const ready = readySteps(p.plan?.stages ?? [], p.artifacts.map((x) => x.name)).filter((id) => !p.blocked?.[id]);
   const bad = ids.find((i) => !ready.includes(i));
   onEvent({ event: "started", engine: a.engine as string, what: ids.map((i) => `stage ${i}`).join(" and ") });
   await sleep(700);
@@ -903,10 +1074,38 @@ async function mockWave<T>(a: Record<string, unknown>, onEvent: (e: RunEvent) =>
   return rows as T;
 }
 
+/** The preview's policy defaults, which start as every project's policy until now. */
+let mockDefaults = { send_outside: "ask", delete_files: "ask", install_software: "ask", privacy: "standard" } as { send_outside: "ask" | "never"; delete_files: "ask" | "never"; install_software: "ask" | "never"; privacy: "standard" | "no_retention" };
+
+/** The ?board preview's sample projects, each waiting on a different decision. Made once, through the same mock
+ *  calls the screens use. */
+let seeded: Promise<void> | null = null;
+function seedBoard(): Promise<void> {
+  return seeded ??= (async () => {
+    const quiet = () => undefined;
+    const make = async (name: string, brief: string) => {
+      await mockCall("create_project", { name, brief });
+      await mockRun("propose_plan", { engine: "live" }, quiet);
+      return mock.projects[name];
+    };
+    await make("q3-roadmap-brief", "Write a Q3 roadmap brief for the leadership team from the planning notes.");
+    const pr = await make("pricing-research", "Research how three competitors price their team plans.");
+    pr.approvedHash = hashPlan(pr.plan!);
+    (pr.failures ??= {})[pr.plan!.stages[0].id] = ["the account is out of credit", "out_of_credits"];
+    const ob = await make("onboarding-posts", "Draft five onboarding posts for new customers.");
+    ob.approvedHash = hashPlan(ob.plan!);
+    ob.stopped = true;
+    await make("tide-chart-app", "Build a small tide chart app.");
+    mock.current = "";
+  })();
+}
+
 async function mockRun<T>(cmd: string, a: Record<string, unknown>, onEvent: (e: RunEvent) => void): Promise<T> {
   const p = mock.projects[mock.current];
-  const what = cmd === "ask_step" ? `a question about ${a.stage}` : cmd === "coordinator_say" ? "the coordinator" : cmd === "propose_plan" ? "lead plan" : cmd === "review" ? `review of ${a.artifact} by ${a.reviewer}` : cmd === "revise" ? `revision of ${a.artifact}` : `stage ${a.stageId}`;
+  const title = (id: unknown) => p.plan?.stages.find((x) => x.id === id)?.title ?? "the step";
+  const what = cmd === "ask_step" ? `a question about ${title(a.stage)}` : cmd === "coordinator_say" ? "your request for a change" : cmd === "propose_plan" ? "planning the steps" : cmd === "review" ? `a second check of ${title(a.artifact)}` : cmd === "revise" ? `a revision of ${title(a.artifact)}` : `stage ${a.stageId}`;
   onEvent({ event: "started", engine: a.engine as string, what });
+  if (cmd === "run_stage") p.stopped = false;
   await sleep(500);
   const finish = (ok: boolean, note: string) => onEvent({ event: "finished", ok, note });
   // ?fail=per_minute (or daily_cap, upstream_busy, out_of_credits) makes the next step fail the way the app reports it.
@@ -954,8 +1153,8 @@ async function mockRun<T>(cmd: string, a: Record<string, unknown>, onEvent: (e: 
       : null;
     for (const t of p.coord) if (t.proposal && (t.proposal.status === "pending" || t.proposal.status === "blocked")) t.proposal.status = "superseded";
     p.coord.push({ role: "user", text, at: Date.now(), by: "", proposal: null });
-    const turn: Turn = { role: "assistant", at: Date.now(), by: "coordinator (practice)", proposal: prop,
-      text: prop ? "This is a practice reply. I would make this change and then run the step again." : "This is a practice reply. No model was asked, so no change is proposed. Turn on Live to talk to the coordinator." };
+    const turn: Turn = { role: "assistant", at: Date.now(), by: "practice", proposal: prop,
+      text: prop ? "This is a practice reply. I would make this change and then run the step again." : "This is a practice reply. No model was asked, so no change is proposed. Turn on Live to ask for a change." };
     p.coord.push(turn);
     finish(true, "done");
     return structuredClone(turn) as T;
@@ -1022,6 +1221,12 @@ Manual intake costs **4.2 million** a year across *three sites*, and the average
 hours = heads * hours_per_claim
 \`\`\`
 `;
+  if (a.stageId === "facts") {
+    p.texts[file] = `# Check what's missing\n\n${MOCK_QUESTIONS.map((q) => `Q: ${q.ask} | From: ${q.from ?? "nothing"} | Suggested: ${q.suggested ?? "nothing"}`).join("\n")}\n`;
+    // The steps that wait for this one are held until the person answers, as the real run holds them.
+    p.blocked = Object.fromEntries(p.plan.stages.filter((x) => x.id !== "facts" && (x.after ?? []).includes("facts")).map((x) => [x.id, WAITING]));
+  }
+  if (a.stageId === "review") p.texts[file] += `\n${MOCK_FLAGGED.map((f) => `- ${f}`).join("\n")}\n\nVerdict: Fix first\n`;
   const stage = p.plan.stages.find((s) => s.id === a.stageId);
   p.artifacts.push({ name: a.stageId as string, sha256: "0".repeat(64), file, from_task: `t${p.artifacts.length + 1}` });
   if (!p.review[a.stageId as string]) p.review[a.stageId as string] = { owner: stage?.owner_role ?? "writer", version: 1, head: "0".repeat(64), findings: [], reviewers: {} };

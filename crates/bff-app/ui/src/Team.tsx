@@ -5,7 +5,7 @@ import { AddedNote, AddMaterial, InjectionNotice, SourceList } from "./Files";
 import { Choice, DEFAULT_WRITING, ProviderPick } from "./Pick";
 import StepModels from "./StepModels";
 import TemplatePanel from "./Template";
-import { Ctx, effort, provider, roleName, text, Monogram, SectionIntro } from "./ui";
+import { Ctx, Dialog, effort, provider, roleName, Section, text, Monogram, useConfirm } from "./ui";
 
 /** User-controlled memory shared by this project's agents through the existing durable notes store. */
 function SharedMemory({ ctx }: { ctx: Ctx }) {
@@ -13,6 +13,7 @@ function SharedMemory({ ctx }: { ctx: Ctx }) {
   const [editing, setEditing] = useState("");
   const [error, setError] = useState("");
   const memories = ctx.s.notes.filter((n) => !n.stage);
+  const [ask, asking] = useConfirm();
   const save = () => ctx.guard(async () => {
     try {
       await api.call("add_note", { stage: "", text: draft, replaceId: editing || null });
@@ -22,10 +23,11 @@ function SharedMemory({ ctx }: { ctx: Ctx }) {
   return <section className="sheet" aria-label="Shared project memory">
     <header className="sheet-head"><div><h2>Shared project memory</h2><p className="muted">Keep your audience, voice, decisions, and constraints here. Every agent in this project receives these notes on its next run, including after you quit and reopen. They are your instructions, not verified facts. They stay within this project; copying results to another project does not copy this memory.</p></div></header>
     {memories.length === 0 && <p className="empty-note">No shared memory yet. Add what your whole crew should keep in mind.</p>}
+    {asking}
     <ul className="notes">{memories.map((n) => <li key={n.id}>
       <span className="note-text">{n.text}</span>
       <button className="ghost" disabled={!!ctx.busy} onClick={() => { setDraft(n.text); setEditing(n.id); }}>Edit</button>
-      <button className="ghost" disabled={!!ctx.busy} aria-label={`Remove memory: ${n.text.slice(0,40)}`} onClick={() => ctx.guard(async () => { await api.call("remove_note", { id: n.id }); if (editing === n.id) { setDraft(""); setEditing(""); } })}>Remove</button>
+      <button className="ghost" disabled={!!ctx.busy} aria-label={`Remove memory: ${n.text.slice(0,40)}`} onClick={() => ask({ title: "Remove this note?", line: "Future steps in this project stop getting it. Earlier results keep what they were given.", action: "Remove", run: () => void ctx.guard(async () => { await api.call("remove_note", { id: n.id }); if (editing === n.id) { setDraft(""); setEditing(""); } }) })}>Remove</button>
     </li>)}</ul>
     <label>{editing ? "Edit shared memory" : "What should the crew remember?"}<textarea rows={3} maxLength={2000} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Our audience is small-business owners. Use plain English. Distinguish measured results from estimates." /></label>
     <div className="actions"><button disabled={!!ctx.busy || !draft.trim()} onClick={save}>{editing ? "Save changes" : "Save memory"}</button>{editing && <button className="ghost" onClick={() => { setDraft(""); setEditing(""); }}>Cancel edit</button>}</div>
@@ -46,14 +48,14 @@ function RulesBox({ ctx }: { ctx: Ctx }) {
       <header className="sheet-head">
         <div>
           <h2>Rules for this exercise</h2>
-          <p className="muted">What applies to this exercise whatever else says otherwise, such as "AI tools are allowed", "at most 1,000 words", or "I must record my screen". Every step, the coordinator, and second opinions are told these first, and they win over step descriptions, notes, templates, and files. Changes apply to the next run.</p>
+          <p className="muted">What applies to this exercise whatever else says otherwise, such as "AI tools are allowed", "at most 1,000 words", or "I must record my screen". Every step, every request for a change, and second opinions are told these first, and they win over step descriptions, notes, templates, and files. Changes apply to the next run.</p>
         </div>
       </header>
       <label>Your rules
         <textarea rows={4} value={draft} maxLength={6000} onChange={(e) => setDraft(e.target.value)} placeholder="AI tools are allowed for this exercise. The answer is at most 1,000 words." />
       </label>
       <div className="actions">
-        <button className="primary" disabled={!!ctx.busy || !dirty} onClick={() => ctx.guard(async () => { try { await api.call("set_exercise_rules", { text: draft }); setErr(""); } catch (e) { setErr(text(e)); throw e; } })}>{draft.trim() ? "Save the rules" : "Clear the rules"}</button>
+        <button disabled={!!ctx.busy || !dirty} onClick={() => ctx.guard(async () => { try { await api.call("set_exercise_rules", { text: draft }); setErr(""); } catch (e) { setErr(text(e)); throw e; } })}>{draft.trim() ? "Save the rules" : "Clear the rules"}</button>
         {dirty && <button className="ghost" onClick={() => setDraft(saved)}>Undo my edits</button>}
       </div>
       {err && <p className="field-error" role="alert">{err}</p>}
@@ -61,41 +63,48 @@ function RulesBox({ ctx }: { ctx: Ctx }) {
   );
 }
 
-/** What the team reads: every file, web page, and earlier result, and the ways to add more. */
+/** Sources (DESIGN_SPEC.md §10.1): what every step reads, its rules and notes, and its template, as sections. Adding a
+ *  source is one dialog. */
 export function MaterialTab({ ctx }: { ctx: Ctx }) {
   const [note, setNote] = useState<Added | null>(null);
   const [err, setErr] = useState("");
+  const [adding, setAdding] = useState(false);
   const used = ctx.s.artifacts.length > 0;
+  const n = ctx.s.sources.length;
+  const flagged = ctx.s.sources.filter((x) => x.suspicious.length > 0).length;
   const merge = (rs: Added[]) => setNote({ added: rs.flatMap((r) => r.added), skipped: rs.flatMap((r) => r.skipped) });
   const add = (f: () => Promise<Added[]>) => ctx.guard(async () => { try { merge(await f()); setErr(""); } catch (e) { setErr(text(e)); throw e; } });
+  const rules = ctx.s.rules?.text?.trim();
+  const notes = ctx.s.notes.filter((x) => !x.stage).length;
   return (
     <>
-      <SectionIntro title="Give your crew the context">Add the sources your crew should read, and say which ones contain your instructions.</SectionIntro>
-      <RulesBox ctx={ctx} />
-      <SharedMemory ctx={ctx} />
-      <TemplatePanel ctx={ctx} />
-      <section className="sheet">
-        <header className="sheet-head">
-          <div>
-            <h2>Your sources</h2>
-            <p className="muted">Every step can read and cite these sources. Mark task instructions or a template below; other files are evidence to read. Changes apply to the next run.{used ? " Sources already used by a step cannot be removed." : ""}</p>
-          </div>
-          {ctx.s.sources.length > 0 && <span className="count">{ctx.s.sources.length}</span>}
-        </header>
-        <InjectionNotice sources={ctx.s.sources} />
-        <SourceList sources={ctx.s.sources} locked={used} busy={!!ctx.busy} onRemove={(id) => ctx.guard(() => api.call("remove_source", { id }))} onRole={(id, role) => ctx.guard(() => api.call("set_source_role", { id, role }))} />
-      </section>
-      <section className="sheet">
-        <header className="sheet-head"><div><h2>Add a source</h2></div></header>
+      <div className="tab-line"><p className="muted">What every step reads and cites, the rules it follows, and the template its files use.</p><button onClick={() => setAdding(true)}>Add a source</button></div>
+      {note && <AddedNote r={note} />}
+      <div className="page-sections"><div>
+        <Section title="Your sources" value={`${n} ${n === 1 ? "source" : "sources"}${flagged ? `, ${flagged} flagged` : ""}`} flag={flagged ? `${flagged} flagged` : undefined} open={n === 0}>
+          <InjectionNotice sources={ctx.s.sources} />
+          <p className="muted">Mark task instructions or a template; other files are evidence to read. Changes apply to the next run.{used ? " A source a step has already read cannot be removed." : ""}</p>
+          <SourceList sources={ctx.s.sources} locked={used} busy={!!ctx.busy} onRemove={(id) => ctx.guard(() => api.call("remove_source", { id }))} onRole={(id, role) => ctx.guard(() => api.call("set_source_role", { id, role }))} />
+        </Section>
+        <Section title="Instructions" value={`${rules ? "rules set" : "no rules"}, ${notes} ${notes === 1 ? "note" : "notes"}`}>
+          <RulesBox ctx={ctx} />
+          <SharedMemory ctx={ctx} />
+          <p className="muted">Notes for every project are in Memory.</p>
+        </Section>
+        <Section title="Template" value={ctx.s.look?.name ?? "none"}>
+          <TemplatePanel ctx={ctx} />
+        </Section>
+      </div></div>
+      {adding && <Dialog title="Add a source" onClose={() => setAdding(false)}>
         <AddMaterial disabled={!!ctx.busy} current={ctx.s.name}
           onUrls={(us) => add(async () => { const out: Added[] = []; for (const u of us) out.push(await api.call<Added>("add_source_url", { url: u })); return out; })}
           onPaths={(ps) => add(async () => { const out: Added[] = []; for (const p of ps) out.push(await api.call<Added>("add_source_path", { path: p })); return out; })}
           onFiles={(fs) => add(async () => { const out: Added[] = []; for (const f of fs) out.push(await api.addFile(f)); return out; })}
           onPick={(from, stages) => add(async () => [await api.call<Added>("add_source_results", { from, stages })])}
           service={<Connectors ctx={ctx} />} />
-        {note && <AddedNote r={note} />}
         {err && <p className="field-error" role="alert">{err}</p>}
-      </section>
+        <div className="dlg-foot"><span className="sp" /><button className="primary" data-autofocus onClick={() => setAdding(false)}>Done</button></div>
+      </Dialog>}
     </>
   );
 }
@@ -104,7 +113,7 @@ export function MaterialTab({ ctx }: { ctx: Ctx }) {
 /** The crew: who is on the team, what each does, and which provider and model each uses. */
 function Crew({ ctx }: { ctx: Ctx }) {
   const p = ctx.s.plan;
-  if (!p) return <p className="empty-note">There is no plan yet. Ask the coordinator for one, or use a ready-made one.</p>;
+  if (!p) return <p className="empty-note">There is no plan yet. Suggest one, or use a ready-made one.</p>;
   return (
     <ul className="crew-list">
       {p.team.map((t) => {
@@ -200,36 +209,39 @@ function PlanEditor({ ctx, draft, setDraft }: { ctx: Ctx; draft: Plan; setDraft:
   );
 }
 
+/** Your crew (DESIGN_SPEC.md §10.1): the brief, the crew, steps and models, and tools, as sections. Changing the plan
+ *  and using a ready-made one are dialogs; the plan dialog holds the tab's only Save. */
 export default function TeamTab({ ctx, draft, setDraft }: { ctx: Ctx; draft: Plan | null; setDraft: (p: Plan | null) => void }) {
-  const [open, setOpen] = useState<"" | "ready" | "edit" | "tools">("");
-  const toggle = (k: "ready" | "edit" | "tools") => setOpen(open === k ? "" : k);
+  const [open, setOpen] = useState<"" | "ready" | "edit">("");
+  const p = ctx.s.plan;
+  const firstWords = ctx.s.brief.split(/\s+/).slice(0, 8).join(" ");
   return (
     <>
-      <SectionIntro title="A crew built around your brief">See who prepares and checks the work. Change the plan or AI settings when you need to.</SectionIntro>
-      <section className="sheet">
-        <header className="sheet-head"><div><h2>Your brief</h2></div></header>
-        <p className="brief ask-text">{ctx.s.brief}</p>
-      </section>
-      <section className="sheet">
-        <header className="sheet-head">
-          <div>
-            <h2>Your crew</h2>
-            <p className="muted">Writers prepare the work. Checkers give it another pass. Choose a different provider for a more independent opinion.</p>
-          </div>
-        </header>
-        <Crew ctx={ctx} />
-        <div className="actions">
-          <button className="ghost" aria-expanded={open === "ready"} onClick={() => toggle("ready")}>Use a ready-made plan</button>
-          <button className="ghost" disabled={!!ctx.busy} onClick={() => ctx.guard(() => api.run("propose_plan", { engine: ctx.engine }, ctx.track))}>{ctx.s.plan ? "Ask the coordinator for a new plan" : "Ask the coordinator for a plan"}</button>
-          {draft && <button className="ghost" aria-expanded={open === "edit"} onClick={() => toggle("edit")}>Edit steps and roles</button>}
-          <button className="link" aria-expanded={open === "tools"} onClick={() => toggle("tools")}>Skills and tools</button>
-        </div>
-        <p className="muted">A new or edited plan needs approval again before anything runs.</p>
-        {open === "ready" && <div className="drawer"><ReadyMade ctx={ctx} /></div>}
-        {open === "edit" && draft && <div className="drawer"><PlanEditor ctx={ctx} draft={draft} setDraft={setDraft} /></div>}
-        {open === "tools" && <div className="drawer"><ToolsPanel ctx={ctx} /></div>}
-      </section>
-      {ctx.s.plan && <StepModels ctx={ctx} plan={ctx.s.plan} />}
+      <div className="tab-line">
+        <p className="muted">Who prepares and checks the work, on which models. A new or changed plan is approved again before anything runs.</p>
+        <span className="actions tight">
+          {draft && <button onClick={() => setOpen("edit")}>Change the plan</button>}
+          <button onClick={() => setOpen("ready")}>Use a ready-made plan</button>
+          <button disabled={!!ctx.busy} onClick={() => ctx.guard(() => api.run("propose_plan", { engine: ctx.engine }, ctx.track))}>{p ? "Suggest a new plan" : "Suggest a plan"}</button>
+        </span>
+      </div>
+      <div className="page-sections"><div>
+        <Section title="Brief" value={`${firstWords}${ctx.s.brief.split(/\s+/).length > 8 ? "…" : ""}`}>
+          <p className="brief ask-text">{ctx.s.brief}</p>
+        </Section>
+        <Section title="Crew" value={p ? `${p.team.length} ${p.team.length === 1 ? "role" : "roles"}` : "no plan yet"} open>
+          <Crew ctx={ctx} />
+          <p className="muted">Writers prepare the work. The second check gives it another pass; a different provider gives a more independent opinion.</p>
+        </Section>
+        {p && <Section title="Steps and models" value={`${p.stages.length} ${p.stages.length === 1 ? "step" : "steps"}`}>
+          <StepModels ctx={ctx} plan={p} />
+        </Section>}
+        <Section title="Tools" value="skills and connections">
+          <ToolsPanel ctx={ctx} />
+        </Section>
+      </div></div>
+      {open === "ready" && <Dialog title="Use a ready-made plan" onClose={() => setOpen("")}><ReadyMade ctx={ctx} /><div className="dlg-foot"><span className="sp" /><button data-autofocus onClick={() => setOpen("")}>Close</button></div></Dialog>}
+      {open === "edit" && draft && <Dialog title="Change the plan" onClose={() => setOpen("")}><PlanEditor ctx={ctx} draft={draft} setDraft={setDraft} /><p className="muted">Saving ends the plan's approval, so you approve it again before more steps run.</p><div className="dlg-foot"><span className="sp" /><button data-autofocus onClick={() => setOpen("")}>Close</button></div></Dialog>}
     </>
   );
 }

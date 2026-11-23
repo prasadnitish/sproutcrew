@@ -1,7 +1,8 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { Added, ProjectResult, Source, SourceRole } from "./api";
 import { api } from "./api";
-import { Chip, Tabs } from "./ui";
+import { Chip, Tabs, useConfirm } from "./ui";
+import { sizeLabel } from "./addedFiles";
 
 export const FILE_TYPES = ".txt,.md,.csv,.json,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.html,.htm,.png,.jpg,.jpeg,.tif,.tiff,.heic,.gif,.bmp,.webp";
 
@@ -92,15 +93,17 @@ const kindOf = (f: Source) => (f.origin.startsWith("project ") ? "Project" : f.o
 const ROLE_WORD: Record<SourceRole, string> = { evidence: "Evidence to read and cite", requirements: "Instructions for the task", template: "Template to fill" };
 
 export function SourceList({ sources, locked, busy, onRemove, onRole }: { sources: Source[]; locked: boolean; busy: boolean; onRemove: (id: string) => void; onRole?: (id: string, role: SourceRole) => void }) {
+  const [ask, asking] = useConfirm();
   if (sources.length === 0) return <p className="empty-note">Nothing added yet. Add what the team should read.</p>;
   return (
+    <>{asking}
     <ul className="material-list">
       {sources.map((f) => (
         <li key={f.id} className="material-row">
           <span className="type-tile" aria-hidden="true">{kindOf(f)}</span>
           <span className="material-main">
             <strong>{f.title ?? f.name}</strong>
-            <span className="muted">{f.id} · {f.bytes < 1024 * 1024 ? `${Math.max(1, Math.round(f.bytes / 1024))} KB` : `${(f.bytes / 1024 / 1024).toFixed(1)} MB`}{f.pages > 1 ? ` · ${f.pages} pages` : ""}{f.origin ? ` · ${f.origin}` : ""}</span>
+            <span className="muted">{f.id} · {sizeLabel(f.bytes)}{f.pages > 1 ? ` · ${f.pages} pages` : ""}{f.origin ? ` · ${f.origin}` : ""}</span>
             <span className="material-chips">
               {f.flags.map((x) => <Chip key={x} tone="warn">{x}</Chip>)}
               {f.suspicious.length > 0 && <Chip tone="bad">Talks to the AI: {f.suspicious.join("; ")}</Chip>}
@@ -115,10 +118,11 @@ export function SourceList({ sources, locked, busy, onRemove, onRole }: { source
               </label>
             )}
           </span>
-          <button className="ghost" disabled={locked || busy} title={locked ? "A step has already used the material" : undefined} onClick={() => onRemove(f.id)}>Remove</button>
+          <button className="ghost" disabled={locked || busy} title={locked ? "A step has already used the material" : undefined} onClick={() => ask({ title: `Remove ${f.title || f.name}?`, line: "No later step reads it. Results already made keep what they read.", action: "Remove", run: () => onRemove(f.id) })}>Remove</button>
         </li>
       ))}
     </ul>
+    </>
   );
 }
 

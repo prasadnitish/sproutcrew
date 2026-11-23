@@ -1,6 +1,6 @@
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
-import { Catalog, CatalogModel, contextLine, filterModels, groups, makers, priceLine } from "./models";
+import { Catalog, CatalogModel, contextLine, filterModels, groups, makers, modelName, priceLine } from "./models";
 import { text } from "./ui";
 
 let cached: Promise<Catalog> | null = null;
@@ -10,15 +10,16 @@ export function loadCatalog(): Promise<Catalog> {
   return cached;
 }
 
-/** The model's readable name, from the list when it has one. */
+/** The model's readable name: from the list when it has one, from the app's defaults while the list loads. */
 export function useModelName(id: string): string {
-  const [name, setName] = useState(id);
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     let live = true;
-    loadCatalog().then((c) => live && setName(c.models.find((m) => m.id === id)?.name ?? id)).catch(() => undefined);
+    loadCatalog().then((c) => live && setCatalog(c)).catch(() => live && setFailed(true));
     return () => { live = false; };
-  }, [id]);
-  return name;
+  }, []);
+  return modelName(id, catalog, failed);
 }
 
 /** A searchable list of every OpenRouter model, grouped Recommended, Free and All models, with prices per

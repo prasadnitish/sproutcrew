@@ -13,7 +13,7 @@ const EXTRA_ROLES: [string, string][] = [["builder", "Builder (writes the protot
 const sideOf = (ctx: Ctx, role: string): "writing" | "checking" => ctx.s.role_info?.[role]?.side ?? (role === "reviewer" ? "checking" : "writing");
 
 /** Shape the flow before anything runs: tick the steps to keep, add the ones that are missing, see the flow as a
- *  picture, and save. The coordinator can propose the changes from the ask. Saving changes the plan, so it is
+ *  picture, and save. The crew can propose the changes from the ask. Saving changes the plan, so it is
  *  approved afterwards from the whole new plan. */
 export default function Shape({ ctx, plan, onTalk }: { ctx: Ctx; plan: Plan; onTalk: () => void }) {
   const [off, setOff] = useState<string[]>([]);
@@ -54,7 +54,7 @@ export default function Shape({ ctx, plan, onTalk }: { ctx: Ctx; plan: Plan; onT
           <h2>Shape the steps</h2>
           <p className="muted">Tick the steps you want, add the ones that are missing, and look at the flow. Nothing runs until you approve the plan.</p>
         </div>
-        <button className="ghost" disabled={!!ctx.busy} onClick={adapt} title="The coordinator reads your ask and proposes changes you can apply">Adapt to my ask</button>
+        <button className="ghost" disabled={!!ctx.busy} onClick={adapt} title="The crew reads your ask and proposes changes you can apply">Adapt to my ask</button>
       </header>
       <ul className="shape-list">
         {plan.stages.map((st, i) => {

@@ -9,13 +9,14 @@ test('theme preference survives reload and returns to the system without an expl
   const oldStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
   try {
     Object.defineProperty(globalThis, 'document', { configurable: true, value: { documentElement: { dataset } } });
-    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => store.set(key, value) } });
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => store.set(key, value), removeItem: (key: string) => store.delete(key) } });
     assert.equal(loadTheme(), 'system');
     applyTheme('dark');
     assert.equal(dataset.theme, 'dark');
     assert.equal(loadTheme(), 'dark');
     applyTheme('system');
     assert.equal(dataset.theme, undefined);
+    assert.equal(store.has('sproutcrew-theme'), false);
     assert.equal(loadTheme(), 'system');
     store.set('sproutcrew-theme', 'corrupt');
     assert.equal(loadTheme(), 'system');

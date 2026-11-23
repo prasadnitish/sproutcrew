@@ -37,7 +37,7 @@ export default function Splash({ onDone }: { onDone: () => void }) {
     <main className="splash" aria-label="Welcome to SproutCrew">
       <WindowChrome />
       <SplashIdentity />
-      <button className="ghost splash-skip" onClick={onDone} autoFocus>Skip introduction <span aria-hidden="true">↗</span></button>
+      <button className="ghost splash-skip" onClick={onDone} autoFocus>Skip introduction</button>
     </main>
   );
 }

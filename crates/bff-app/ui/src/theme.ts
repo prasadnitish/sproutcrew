@@ -7,5 +7,6 @@ export function loadTheme(): Theme {
 export function applyTheme(theme: Theme, persist = true) {
   if (theme === 'system') delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme;
-  if (persist) try { localStorage.setItem(KEY, theme); } catch { /* session-only preference */ }
+  // Match this Mac is the absence of a choice, so nothing is stored for it.
+  if (persist) try { if (theme === 'system') localStorage.removeItem(KEY); else localStorage.setItem(KEY, theme); } catch { /* session-only preference */ }
 }

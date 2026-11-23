@@ -3,13 +3,14 @@ import { api, ProjectLimit, Spend, SpendStatus } from "./api";
 import { planWindows } from "./Gauge";
 import { useSpring } from "./spring";
 import { Chip, Ctx, Empty, n, provider, roleName, secs, Tabs, text, SectionIntro } from "./ui";
-import { dollarsLine, group, GroupBy, total } from "./usage";
+import { amount } from "./amount";
+import { dollarsLine, group, GroupBy, projectSpendLine, total } from "./usage";
 
 const dollars = (v: number) => `$${v.toFixed(2)}`;
 const tokens = (v: number) => `${n(v)} token${v === 1 ? "" : "s"}`;
 
 /** A cap on API use. Past it nothing is sent until the person approves a higher cap. */
-function CapCard({ unit, sp, busy, onRaise }: { unit: "tokens" | "dollars"; sp: Spend; busy: string; onRaise: (unit: string, cap: number) => Promise<void> }) {
+export function CapCard({ unit, sp, busy, onRaise }: { unit: "tokens" | "dollars"; sp: Spend; busy: string; onRaise: (unit: string, cap: number) => Promise<void> }) {
   const [custom, setCustom] = useState("");
   const show = unit === "tokens" ? tokens : dollars;
   const step = unit === "tokens" ? 500000 : 5;
@@ -27,7 +28,7 @@ function CapCard({ unit, sp, busy, onRaise }: { unit: "tokens" | "dollars"; sp: 
       <div className="actions tight">
         <button disabled={!!busy} onClick={() => void onRaise(unit, sp.cap + step)}>Approve {show(step)} more (cap {show(sp.cap + step)})</button>
         <input aria-label={`New ${unit} cap`} inputMode="decimal" value={custom} onChange={(e) => setCustom(e.target.value)} placeholder={`Or a new cap in ${unit}`} />
-        <button disabled={!custom || !!busy} onClick={() => void onRaise(unit, Number(custom)).then(() => setCustom(""))}>Set the cap</button>
+        <button disabled={amount(custom) === null || !!busy} onClick={() => void onRaise(unit, amount(custom)!).then(() => setCustom(""))}>Set the cap</button>
       </div>
     </>
   );
@@ -81,7 +82,7 @@ function UsageBreakdown({ ctx }: { ctx: Ctx }) {
       <header className="sheet-head">
         <div>
           <h2>Cost and tokens</h2>
-          <p className="muted">{rows.length === 0 ? "Nothing has run yet." : `${t.requests} request${t.requests === 1 ? "" : "s"}, ${dollarsLine(t.dollars, t.unknownDollars, t.requests)} as reported by the providers. A request with no reported figure is counted as unknown, never as zero.`}</p>
+          <p className="muted">{rows.length === 0 ? "Nothing has run yet." : `${t.requests} request${t.requests === 1 ? "" : "s"}, ${dollarsLine(t.dollars, t.unknownDollars, t.requests)} as reported by the providers.`}</p>
         </div>
         {rows.length > 0 && <button className="ghost" disabled={!!ctx.busy} onClick={() => void save()}>Export as CSV</button>}
       </header>
@@ -109,27 +110,35 @@ function UsageBreakdown({ ctx }: { ctx: Ctx }) {
   );
 }
 
+/** The field and button that set the project's dollar limit, higher or lower. It is also on the plan card. */
+export function LimitForm({ busy, guard, button }: { busy: boolean; guard: Ctx["guard"]; button: string }) {
+  const [raise, setRaise] = useState("");
+  const [err, setErr] = useState("");
+  return (
+    <>
+      <div className="actions tight">
+        <input aria-label="New limit in dollars" inputMode="decimal" value={raise} onChange={(e) => setRaise(e.target.value)} placeholder="New limit, such as 10" />
+        <button disabled={amount(raise) === null || busy} onClick={() => guard(async () => { try { await api.call("set_project_limit", { dollars: amount(raise)! }); setRaise(""); setErr(""); } catch (e) { setErr(text(e)); throw e; } })}>{button}</button>
+      </div>
+      {err && <p className="field-error" role="alert">{err}</p>}
+    </>
+  );
+}
+
 /** What paid models have cost this project against its dollar limit, and a way to raise the limit. Raising it is
  *  the approval to spend more; a cost that was never reported counts at the most it could have been. */
 function ProjectLimitStat({ l, busy, guard }: { l: ProjectLimit; busy: boolean; guard: Ctx["guard"] }) {
-  const [raise, setRaise] = useState("");
-  const [err, setErr] = useState("");
   const used = l.spent + l.held;
   const full = used >= l.cap;
   return (
     <section className="stat">
-      <p className="muted">Paid models in this project</p>
-      <p className="big-number">${used.toFixed(2)} <span className="muted">of ${l.cap.toFixed(2)}</span></p>
-      <HBar value={l.cap ? used / l.cap : 0} tone={full ? "bad" : used / l.cap >= 0.8 ? "warn" : "ok"} />
+      <p className={`big-number${l.locked ? " unknown" : ""}`}>{projectSpendLine(l)}</p>
+      {!l.locked && <HBar value={l.cap ? used / l.cap : 0} tone={full ? "bad" : used / l.cap >= 0.8 ? "warn" : "ok"} />}
       <p className="muted">
         {l.locked ? "The record of this project's spending could not be read, so nothing paid runs until it is fixed." : full ? "The limit is reached. Paid steps pause until you raise it." : "Steps on paid OpenRouter models pause when this limit is reached. Free models do not count."}
         {l.unknown_charges > 0 ? ` ${l.unknown_charges} request${l.unknown_charges === 1 ? " was" : "s were"} never priced, so ${l.unknown_charges === 1 ? "it counts" : "they count"} at the most ${l.unknown_charges === 1 ? "it" : "they"} could have cost.` : ""}
       </p>
-      <div className="actions tight">
-        <input aria-label="New limit in dollars" inputMode="decimal" value={raise} onChange={(e) => setRaise(e.target.value)} placeholder="New limit, such as 10" />
-        <button disabled={!raise || busy} onClick={() => guard(async () => { try { await api.call("raise_project_limit", { dollars: Number(raise) }); setRaise(""); setErr(""); } catch (e) { setErr(text(e)); throw e; } })}>Raise the limit</button>
-      </div>
-      {err && <p className="field-error" role="alert">{err}</p>}
+      <LimitForm busy={busy} guard={guard} button="Change the limit" />
     </section>
   );
 }
@@ -147,33 +156,41 @@ export default function CostTab({ ctx }: { ctx: Ctx }) {
   const biggest = models.reduce((m, x) => Math.max(m, x.tokens ?? 0), 0);
   const label = (task: string) => {
     const id = s.artifacts.find((a) => a.from_task === task)?.name;
-    return id ? (s.plan?.stages.find((x) => x.id === id)?.title ?? id) : task === "plan" ? "Coordinator plan" : task;
+    return id ? (s.plan?.stages.find((x) => x.id === id)?.title ?? id) : task === "plan" ? "Planning" : task;
   };
   const set = () => guard(async () => {
-    try { await api.call("set_budget", { limit: Number(limit), perTask: Number(per) }); setErr(""); } catch (e) { setErr(text(e)); throw e; }
+    try { await api.call("set_budget", { limit: amount(limit)!, perTask: amount(per)! }); setErr(""); } catch (e) { setErr(text(e)); throw e; }
   });
   const tokensKnown = !s.meters.tokens.startsWith("unknown");
   return (
     <>
-      <SectionIntro title="Stay in control of usage">Review what is known, check your limits, and decide when to allow more. An unknown amount is never counted as zero.</SectionIntro>
+      <SectionIntro title="Usage & limits">What this project has used and the limits on it. An unknown amount is never counted as zero.</SectionIntro>
+      {s.project_limit ? <div className="stat-row"><ProjectLimitStat l={s.project_limit} busy={!!busy} guard={guard} /></div> : (
+        <div className="stat-row">
+          <section className="stat">
+            <p className="muted">This project</p>
+            <p className="big-number unknown">Cost not available</p>
+            <p className="muted">Usage counts are not a complete billing total. Check your API limits and provider billing.</p>
+          </section>
+        </div>
+      )}
+
+      {/* The limits that stop work stay in view: a cap that is reached is not something to find in a closed section. */}
+      <SpendCap busy={busy} />
+
+      <details className="usage-details" open={b?.paused || undefined}>
+        <summary>Details: tokens, plan usage and limits for all projects</summary>
       <div className="stat-row">
         <section className="stat">
           <p className="muted">Tokens in this project</p>
           <p className={`big-number${tokensKnown ? "" : " unknown"}`}>{tokensKnown ? n(Number(s.meters.tokens)) : "Unknown"}</p>
           <p className="muted">{models.length > 0 ? `across ${models.filter((m) => m.model !== "planning").length || 1} ${models.length === 1 ? "model" : "models"}` : "No step has run yet."}</p>
         </section>
-        {s.project_limit ? <ProjectLimitStat l={s.project_limit} busy={!!busy} guard={guard} /> : (
-          <section className="stat">
-            <p className="muted">Total project cost</p>
-            <p className="big-number unknown">Not available</p>
-            <p className="muted">Usage counts are not a complete billing total. Check your API limits and provider billing.</p>
-          </section>
-        )}
       </div>
 
       <section className="sheet">
-        <header className="sheet-head"><div><h2>Connected plan usage</h2><p className="muted">The latest usage windows reported by your providers. SproutCrew stops new work when a reported window reaches 50 percent.</p></div></header>
-        {win.length === 0 ? <p className="empty-note">Unknown until a step has run on a plan login.</p> : (
+        <header className="sheet-head"><div><h2>Plan usage</h2><p className="muted">How much of each plan your providers say is used. SproutCrew stops starting new work when one reaches 50 percent.</p></div></header>
+        {win.length === 0 ? <p className="empty-note">Unknown until a step has run on a plan.</p> : (
           <ul className="bars">
             {win.map((w) => (
               <li key={w.name}>
@@ -188,15 +205,13 @@ export default function CostTab({ ctx }: { ctx: Ctx }) {
 
       <UsageBreakdown ctx={ctx} />
 
-      <SpendCap busy={busy} />
-
       {models.length > 0 && (
         <section className="sheet">
-          <header className="sheet-head"><div><h2>Tokens by model</h2><p className="muted">A step the provider did not report is counted as unknown, never as zero.</p></div></header>
+          <header className="sheet-head"><div><h2>Tokens by model</h2></div></header>
           <ul className="bars">
             {models.map((m) => (
               <li key={`${m.route}-${m.model}`}>
-                <span className="bars-label">{m.model === "planning" ? "Coordinator plan" : m.model}<span className="muted"> {m.route ? provider(m.route) : ""}</span></span>
+                <span className="bars-label">{m.model === "planning" ? "Planning" : m.model}<span className="muted"> {m.route ? provider(m.route) : ""}</span></span>
                 <HBar value={biggest ? (m.tokens ?? 0) / biggest : 0} tone="info" />
                 <span className={`bars-num${m.tokens === null ? " unknown" : ""}`}>{m.tokens === null ? "unknown" : n(m.tokens)}{m.unknown_token_steps > 0 && m.tokens !== null ? ` + ${m.unknown_token_steps} unknown` : ""}</span>
               </li>
@@ -225,7 +240,7 @@ export default function CostTab({ ctx }: { ctx: Ctx }) {
             </table>
           )}
         </details>
-        <details>
+        <details open={b?.paused || undefined}>
           <summary>A limit for this project</summary>
           <p className="muted">Each step holds back its share before it starts, so two steps cannot spend the same allowance. When the limit is reached, steps pause until you raise it.</p>
           {b ? (
@@ -239,19 +254,20 @@ export default function CostTab({ ctx }: { ctx: Ctx }) {
               </p>
               <div className="actions tight">
                 <input aria-label="New limit" inputMode="numeric" value={raise} onChange={(e) => setRaise(e.target.value)} placeholder="New, higher limit in tokens" />
-                <button disabled={!raise || !!busy} onClick={() => guard(async () => { try { await api.call("raise_budget", { newLimit: Number(raise) }); setRaise(""); setErr(""); } catch (e) { setErr(text(e)); throw e; } })}>Raise the limit</button>
+                <button disabled={amount(raise) === null || !!busy} onClick={() => guard(async () => { try { await api.call("raise_budget", { newLimit: amount(raise)! }); setRaise(""); setErr(""); } catch (e) { setErr(text(e)); throw e; } })}>Raise the limit</button>
               </div>
             </>
           ) : (
             <div className="grid-row budget">
               <label>Limit in tokens<input inputMode="numeric" value={limit} onChange={(e) => setLimit(e.target.value)} /></label>
               <label>Held back per step<input inputMode="numeric" value={per} onChange={(e) => setPer(e.target.value)} /></label>
-              <button className="primary" disabled={!!busy} onClick={set}>Set the limit</button>
+              <button className="primary" disabled={!!busy || amount(limit) === null || amount(per) === null} onClick={set}>Set the limit</button>
             </div>
           )}
           {err && <p className="field-error" role="alert">{err}</p>}
         </details>
       </section>
+      </details>
     </>
   );
 }
