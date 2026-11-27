@@ -68,6 +68,20 @@ pub fn valid_secret(secret: &str) -> bool {
 
 pub struct Keychain {
     runner: Box<dyn Runner>,
+    /// Whether presence answers are shared with every other `Keychain` in the app for a short time.
+    remember: bool,
+}
+
+/// How long a presence answer is reused. Building the engines for one step asks about every provider's key, and
+/// each question starts `security`, so several steps starting together would start it dozens of times.
+const PRESENT_FOR: std::time::Duration = std::time::Duration::from_secs(15);
+
+type Seen = std::collections::HashMap<String, (bool, std::time::Instant)>;
+static PRESENT: std::sync::LazyLock<std::sync::Mutex<Seen>> =
+    std::sync::LazyLock::new(Default::default);
+
+fn forget(account: &str) {
+    PRESENT.lock().expect("keychain cache").remove(account);
 }
 
 /// Account names are lowercase letters, digits, and hyphens.
@@ -98,21 +112,43 @@ impl Keychain {
     pub fn new() -> Keychain {
         Keychain {
             runner: Box::new(RealSecurity),
+            remember: true,
         }
     }
 
     pub fn with_runner(runner: Box<dyn Runner>) -> Keychain {
-        Keychain { runner }
+        Keychain {
+            runner,
+            remember: false,
+        }
     }
 
-    /// Whether an item exists. Reads attributes only, so no password is read and no prompt appears.
+    /// Whether an item exists. Reads attributes only, so no password is read and no prompt appears. The answer is
+    /// reused for a few seconds; saving or removing a key here forgets it at once. The key itself is never kept.
     pub fn present(&self, account: &str) -> bool {
-        valid_account(account)
-            && matches!(
-                self.runner
-                    .run(&["find-generic-password", "-s", SERVICE, "-a", account]),
-                Ok((0, _))
-            )
+        if !valid_account(account) {
+            return false;
+        }
+        if self.remember {
+            let seen = PRESENT.lock().expect("keychain cache");
+            if let Some((there, at)) = seen.get(account) {
+                if at.elapsed() < PRESENT_FOR {
+                    return *there;
+                }
+            }
+        }
+        let there = matches!(
+            self.runner
+                .run(&["find-generic-password", "-s", SERVICE, "-a", account]),
+            Ok((0, _))
+        );
+        if self.remember {
+            PRESENT
+                .lock()
+                .expect("keychain cache")
+                .insert(account.to_string(), (there, std::time::Instant::now()));
+        }
+        there
     }
 
     /// Saves a key the person pasted, replacing any earlier one, and checks it is there afterwards.
@@ -127,6 +163,7 @@ impl Keychain {
         }
         let commands = format!("add-generic-password -U -s {SERVICE} -a {account} -w {secret}\n");
         self.runner.run_input(&commands)?;
+        forget(account);
         if self.present(account) {
             Ok(())
         } else {
@@ -139,10 +176,12 @@ impl Keychain {
         if !valid_account(account) {
             return Err("that is not a key name SproutCrew uses".into());
         }
-        match self
+        forget(account);
+        let done = self
             .runner
-            .run(&["delete-generic-password", "-s", SERVICE, "-a", account])
-        {
+            .run(&["delete-generic-password", "-s", SERVICE, "-a", account]);
+        forget(account);
+        match done {
             Ok((0 | 44, _)) => Ok(()),
             Ok((code, _)) => Err(format!(
                 "The Keychain could not remove the key (code {code})."
@@ -227,6 +266,29 @@ mod tests {
                 Ok((0, DUMP.replace("contents:read, metadata:read", comment)))
             }
         }
+    }
+
+    #[test]
+    fn a_presence_answer_is_reused_until_the_key_is_saved_or_removed_here() {
+        let calls: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
+        let k = Keychain {
+            runner: Box::new(Fake {
+                calls: calls.clone(),
+                items: vec![("cache-test-key", "secret", "")],
+            }),
+            remember: true,
+        };
+        let asked = || calls.lock().unwrap().len();
+        assert!(k.present("cache-test-key") && k.present("cache-test-key"));
+        assert_eq!(asked(), 1, "the second answer came from memory");
+        // A key that is absent is remembered too, and removing forgets the answer either way.
+        assert!(!k.present("cache-test-absent") && !k.present("cache-test-absent"));
+        assert_eq!(asked(), 2);
+        k.remove("cache-test-key").unwrap();
+        assert!(k.present("cache-test-key"));
+        assert_eq!(asked(), 4, "one call to remove, one to ask again");
+        forget("cache-test-key");
+        forget("cache-test-absent");
     }
 
     fn keychain(

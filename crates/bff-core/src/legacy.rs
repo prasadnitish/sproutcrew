@@ -119,8 +119,9 @@ fn number(f: f64) -> String {
 
 fn read_xls(bytes: &[u8]) -> Result<Extracted, String> {
     use calamine::{Data, Reader, SheetVisible, Xls};
-    let mut book = Xls::new(Cursor::new(bytes))
-        .map_err(|e| format!("this is not an Excel 97-2003 workbook that BFF can read ({e})"))?;
+    let mut book = Xls::new(Cursor::new(bytes)).map_err(|e| {
+        format!("this is not an Excel 97-2003 workbook that SproutCrew can read ({e})")
+    })?;
     let (mut pages, mut hidden_sheets, mut cut) = (Vec::new(), 0usize, Vec::new());
     for sheet in book.sheets_metadata().to_vec() {
         if sheet.visible != SheetVisible::Visible {
@@ -358,7 +359,7 @@ fn stream(file: &mut cfb::CompoundFile<Cursor<&[u8]>>, name: &str) -> Option<Vec
 
 fn read_ppt(bytes: &[u8]) -> Result<Extracted, String> {
     let mut file = cfb::CompoundFile::open(Cursor::new(bytes)).map_err(|_| {
-        "this is not a PowerPoint 97-2003 presentation that BFF can read".to_string()
+        "this is not a PowerPoint 97-2003 presentation that SproutCrew can read".to_string()
     })?;
     let doc = stream(&mut file, "/PowerPoint Document")
         .ok_or("this is not a PowerPoint presentation (it has no PowerPoint Document)")?;

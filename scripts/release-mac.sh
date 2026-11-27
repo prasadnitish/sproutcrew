@@ -20,18 +20,7 @@ done
 python3 -I "$(dirname "$0")/notices.py"
 cd "$(dirname "$0")/../crates/bff-app"
 
-# With the updater key in the settings file, the build also makes a signed update and the app checks
-# download.sproutcrew.app/latest.json. Without it, the app is built as one that does not update itself.
-extra=()
-if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
-  [ -n "${SPROUTCREW_UPDATER_PUBKEY:-}" ] || { echo "SPROUTCREW_UPDATER_PUBKEY is empty in $env_file" >&2; exit 1; }
-  updater_conf="$(mktemp)"
-  trap 'rm -f "$updater_conf"' EXIT
-  python3 -I -c 'import json, sys; json.dump({"bundle": {"createUpdaterArtifacts": True}, "plugins": {"updater": {"pubkey": sys.argv[1], "endpoints": ["https://download.sproutcrew.app/latest.json"]}}}, open(sys.argv[2], "w"))' "$SPROUTCREW_UPDATER_PUBKEY" "$updater_conf"
-  extra=(--config "$updater_conf")
-fi
-# macOS bash 3.2 treats an empty array as unset under set -u, hence the guard.
-cargo tauri build --bundles app,dmg --target aarch64-apple-darwin ${extra[@]+"${extra[@]}"}
+cargo tauri build --bundles app,dmg --target aarch64-apple-darwin
 
 out="$CARGO_TARGET_DIR/aarch64-apple-darwin/release/bundle"
 app="$out/macos/SproutCrew.app"
@@ -42,8 +31,6 @@ for f in "$app/Contents/MacOS/"*; do
   [ "$(lipo -archs "$f")" = "arm64" ] || { echo "$f is not Apple Silicon only" >&2; exit 1; }
 done
 # The bundled program must carry the same Developer ID and the hardened runtime notarization requires.
-# agent-desktop is not bundled while no step can use it (decided November 16, 2026); when computer use is wired,
-# add it and its helper back here and to tauri.conf.json, with a check that the signed copy still starts.
 team=$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')
 for bin in typst; do
   f="$app/Contents/MacOS/$bin"
@@ -62,22 +49,3 @@ xcrun notarytool submit "$dmg" --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_
 xcrun stapler staple "$dmg"
 spctl --assess --type open --context context:primary-signature -vv "$dmg"
 echo "$dmg"
-
-# The update file, for Apple Silicon Macs only.
-if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
-  version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")
-  python3 -I - "$out/macos/SproutCrew.app.tar.gz" "$version" "$out/latest.json" <<'PY'
-import datetime, json, pathlib, sys
-archive, version, dest = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
-entry = {
-    "signature": pathlib.Path(str(archive) + ".sig").read_text().strip(),
-    "url": f"https://download.sproutcrew.app/releases/{version}/SproutCrew.app.tar.gz",
-}
-json.dump({
-    "version": version,
-    "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "platforms": {"darwin-aarch64": entry},
-}, open(dest, "w"), indent=2)
-print(dest)
-PY
-fi

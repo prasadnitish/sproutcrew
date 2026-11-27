@@ -212,7 +212,7 @@ pub fn collect(project: &str, studio: &Studio) -> Result<Vec<Item>, String> {
             id: format!("failed-{stage}"),
             tier: Tier::Consequential,
             kind: "failure".into(),
-            title: format!("A step stopped: {reason}"),
+            title: format!("A step stopped: {}", crate::stop::without_label(&reason)),
             anchor: format!("step-{stage}"),
         });
     }

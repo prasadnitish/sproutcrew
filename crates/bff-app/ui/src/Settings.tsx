@@ -268,28 +268,6 @@ function Appearance() {
   );
 }
 
-type UpdateInfo = { available: boolean; set_up: boolean; version?: string };
-
-function Updates() {
-  const [info, setInfo] = useState<UpdateInfo | null>(null);
-  const [state, setState] = useState<"" | "checking" | "installing">("");
-  const [err, setErr] = useState("");
-  const check = () => { setState("checking"); api.call<UpdateInfo>("check_update").then((i) => { setInfo(i); setErr(""); }).catch((e) => setErr(text(e))).finally(() => setState("")); };
-  useEffect(check, []);
-  const install = () => { setState("installing"); api.call("install_update").catch((e) => { setErr(text(e)); setState(""); }); };
-  return (
-    <div className="update-line">
-      {info && !info.set_up && <span className="muted">This build does not update itself. Download new versions from sproutcrew.app.</span>}
-      {info?.set_up && !info.available && <span className="muted">SproutCrew is up to date.</span>}
-      {info?.available && <span>Version {info.version} is ready.</span>}
-      {info?.available
-        ? <button className="primary" disabled={!!state} onClick={install}>{state === "installing" ? "Installing" : "Install and restart"}</button>
-        : info?.set_up && <button className="ghost" disabled={!!state} onClick={check}>{state === "checking" ? "Checking" : "Check for updates"}</button>}
-      {err && <p className="field-error" role="alert">{err}</p>}
-    </div>
-  );
-}
-
 export default function Settings({ busy, guard, presenting, setPresenting, onBack }: { busy: string; guard: (f: () => Promise<unknown>) => Promise<void>; presenting: boolean; setPresenting: (b: boolean) => void; onBack: () => void }) {
   const [built, setBuilt] = useState<number | null>(null);
   const [version, setVersion] = useState("");
@@ -315,7 +293,7 @@ export default function Settings({ busy, guard, presenting, setPresenting, onBac
           <p className="muted">SproutCrew is free and runs on this Mac. Project files and results are stored on this Mac. The selected API service receives the context needed for each request; OpenRouter also sends it to its inference provider.</p>
           <p>{pitch}</p>
           <p className="muted">API keys only in this build. Source fencing reduces steering risk; it does not guarantee model immunity. Token-only limits do not cap provider bills.</p>
-          <Updates />
+          <p className="muted">SproutCrew does not update itself. Download new versions from sproutcrew.app.</p>
           <div className="actions about-links">
             {([["privacy", "Privacy"], ["terms", "Terms"], ["home", "Website"], ["contact", "Email hello@sproutcrew.app"], ["licenses", "Open-source licenses"]] as const).map(([id, label]) => (
               <button key={id} className="ghost" onClick={() => void api.call("open_link", { link: id }).catch(() => undefined)}>{label}</button>

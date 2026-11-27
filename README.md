@@ -28,7 +28,6 @@ This is a snapshot of the source for each public release, published without the 
 | --- | --- |
 | `crates/bff-core` | Everything the app decides: plans and approval, the action policy, cost and token limits, redaction, providers, sources, exports. No interface code. |
 | `crates/bff-app` | The Mac app: a Tauri shell and the React interface in `ui/`. |
-| `crates/m0` | The first proof harness, kept for its tests. |
 | `fixtures/redacted` | Recorded provider events with private details removed, used by the tests. |
 | `website` | The pages at sproutcrew.app, including the changelog and roadmap. |
 | `scripts` | Release, notices and vendoring scripts. |

@@ -351,7 +351,7 @@ pub fn role_info(id: &str) -> Option<Role> {
 type Step = (&'static str, &'static str, &'static str, &'static str);
 
 /// How a brainstorm step marks a claim, so an idea is never mistaken for a fact.
-const CLAIM_LABELS: &str = "Label every claim: from a file (give its id), from a page you were given (give its address), or inference. Only the first two count as evidence.";
+const CLAIM_LABELS: &str = "Label every claim: from a file (give the file's name), from a page you were given (give its address), or inference. Only the first two count as evidence. Name a file or step in plain words, never the code its block is marked with.";
 
 const IDEAS_GUIDE: &str = "Work on your own. Using the framing and the evidence, set out at least five approaches that differ in kind, not just in size. Include one small and one ambitious, and one that removes something instead of adding it. For each, say who it helps, why it could work, what must be true for it to work, and the main way it fails. End by naming the one you would back and why.";
 
@@ -579,7 +579,7 @@ impl Workflow {
             Workflow::SocialPublishing => vec![
                 ("draft", "Draft the posts", "copywriter", "Write the posts the brief asks for, for each platform it names (if it names none, for LinkedIn and X). Give each post its own section headed with its number and platform, such as Post 1 · LinkedIn, with: the exact text, ready to post and within that platform's limit, followed by its character count; the hashtags, as many as is usual on that platform; the visual direction, meaning what the picture or clip shows, with its size in pixels and aspect ratio for that platform; the alt text for it; the call to action or link if the brief gives one; and the best time or audience if the files say. Write each platform's version for how people read there; do not paste one text everywhere. If an earlier step looked up current posting rules, follow its figures. Otherwise use these common limits and say they should be checked: X 280 characters on a free account; LinkedIn 3,000 characters, with about the first 210 shown before see more; Instagram 2,200 characters and at most 30 hashtags; Threads 500 characters; Bluesky 300 characters. Use only facts from the brief and the files."),
                 ("review", "Review the drafts for accuracy and tone", "reviewer", "Check each post against the brief and the files for accuracy, tone, and anything that could be read the wrong way. Count the characters of each post's text and check it is within its platform's limit, using the posting rules an earlier step looked up if there is one. Check its hashtags, its visual direction and image size, and its alt text too. Say which posts are ready and which need a change, with the change."),
-                ("queue", "Write the final posts, ready to copy", "copywriter", "Write the final creative for the posts that passed review, grouped by platform, in the order to post, with each post's text, character count, hashtags, visual direction with image size, and alt text exactly as approved and nothing added. Use a heading for each post (# Post 1 · LinkedIn) and bullets for the rest, so it can be pasted into a document or a scheduling tool. Nothing is posted by SproutCrew."),
+                ("queue", "Write the final posts, ready to copy", "copywriter", "Write the final creative for the posts that passed review, grouped by platform, in the order to post, with each post's text, character count, hashtags, visual direction with image size, and alt text exactly as approved and nothing added. Give each character count as a number only. Do not mention the review, the draft, corrections, or your changes. Use a heading for each post (# Post 1 · LinkedIn) and bullets for the rest, so it can be pasted into a document or a scheduling tool. Nothing is posted by SproutCrew."),
             ],
             Workflow::QuickBrainstorm => vec![
                 ("frame", "Frame the decision", "facilitator", "State the decision in one sentence. Say who has the problem, how they cope today, what happens if nothing changes, and what a good answer must do. List doing nothing as an option. Do not propose a solution yet."),
@@ -621,7 +621,7 @@ macro_rules! finish_guide {
     ($what:literal, $from:literal, $check:literal) => {
         concat!(
             "Write the final ", $what, ", ready to hand over. Start from ", $from, " and apply every fix the step ", $check,
-            " listed for it. Change nothing else: keep the title, the headings, and the order unless a fix needs otherwise. Do not add a fact, number, or source that the material does not have. Where a fact only the person can supply is missing, write [NEEDED: what is missing] in its place. Never guess it. Keep each such marker the text already has, unless the person's notes give the fact (then use it and remove the marker) or say to write around it (then rewrite the sentence so it reads whole without it, and leave no placeholder). If a fix needs something only the person can supply that is not a missing fact, leave that text as it is and say what is needed in a section titled Still open before sending, placed just before Source warnings, and leave that section out if nothing is open. Do not list a marked fact there as well. Keep the last section titled Source warnings, if there is one, exactly as it is. If the check found nothing wrong, write the text out unchanged. Write out the whole text, and do not mention the check, the steps, or your changes."
+            " listed for it. Change nothing else: keep the title, the headings, and the order unless a fix needs otherwise. Do not add a fact, number, or source that the material does not have. Where a fact only the person can supply is missing, write [NEEDED: what is missing] in its place. Never guess it. Keep each such marker the text already has, unless the person's notes give the fact (then use it and remove the marker) or say to write around it (then rewrite the sentence so it reads whole without it, and leave no placeholder). If a fix needs something only the person can supply that is not a missing fact, leave that text as it is and say what is needed in a section titled Still open before sending, placed just before Source warnings, and leave that section out if nothing is open. Do not list a marked fact there as well. Keep the last section titled Source warnings, if there is one, exactly as it is. If the check found nothing wrong, write the text out unchanged. Cite evidence in plain words (a file's name or what it is), never by a code or id. Write out the whole text, and do not mention the check, the steps, or your changes."
         )
     };
 }
@@ -1038,6 +1038,12 @@ mod tests {
         assert!(
             guide("queue").contains("exactly as approved")
                 && guide("queue").contains("# Post 1 · LinkedIn")
+        );
+        // QA Q2-B4: the reviewer's recount ended up in the final posts.
+        assert!(guide("queue").contains("Do not mention the review"));
+        assert!(
+            CLAIM_LABELS.contains("never the code")
+                && finish_guide!("x", "y", "z").contains("never by a code")
         );
         assert!(Workflow::SocialPublishing.promise().contains("hashtags"));
     }

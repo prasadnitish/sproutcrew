@@ -74,13 +74,13 @@ impl Style {
 
 /// The fixed script. Arguments: the path to save at, the number of slides, nine style values (text font, title
 /// font, title red, green and blue, logo path, logo width, height, left and top; empty keeps Keynote's own), then title, body and notes for each slide.
-pub const SCRIPT: &str = r#"on run argv
+const SCRIPT: &str = r#"on run argv
 	set savePath to item 1 of argv
 	set slideCount to (item 2 of argv) as integer
 	set textFont to item 3 of argv
 	set titleFont to item 4 of argv
 	set logoPath to item 8 of argv
-	tell application "Keynote"
+	tell application id "__KEYNOTE__"
 		try
 			set d to make new document with properties {document theme:theme "Basic White", width:1920, height:1080}
 		on error
@@ -132,6 +132,62 @@ pub const SCRIPT: &str = r#"on run argv
 	return "saved " & slideCount
 end run"#;
 
+/// The bundle IDs Keynote has had, in the order they are used when both are installed: the older Keynote, and
+/// the one macOS 27 installs as Keynote Creator Studio (Q2 case 27). The scripts name the app by one of these
+/// IDs, so its file name does not matter.
+pub const APP_IDS: [&str; 2] = ["com.apple.iWork.Keynote", "com.apple.Keynote"];
+
+/// Where Keynote can be installed: the Applications folders, under either of its names.
+pub fn candidates(home: &Path) -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    for dir in [PathBuf::from("/Applications"), home.join("Applications")] {
+        for name in ["Keynote.app", "Keynote Creator Studio.app"] {
+            v.push(dir.join(name));
+        }
+    }
+    v
+}
+
+fn bundle_id(app: &Path) -> Option<String> {
+    let v = plist::Value::from_file(app.join("Contents/Info.plist")).ok()?;
+    v.as_dictionary()?
+        .get("CFBundleIdentifier")?
+        .as_string()
+        .map(str::to_string)
+}
+
+/// The bundle ID of the Keynote installed at one of these places, preferring the first of `APP_IDS`. It reads
+/// each app's Info.plist only.
+pub fn find_app_in(apps: &[PathBuf]) -> Option<&'static str> {
+    let found: Vec<String> = apps.iter().filter_map(|a| bundle_id(a)).collect();
+    APP_IDS.into_iter().find(|id| found.iter().any(|f| f == id))
+}
+
+/// The Keynote on this Mac, if there is one.
+pub fn find_app() -> Option<&'static str> {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    find_app_in(&candidates(&home))
+}
+
+fn known(app: &str) -> &'static str {
+    APP_IDS
+        .into_iter()
+        .find(|id| *id == app)
+        .unwrap_or(APP_IDS[0])
+}
+
+/// The build script for this Keynote. Only a known bundle ID is ever put in it.
+pub fn script(app: &str) -> String {
+    SCRIPT.replace("__KEYNOTE__", known(app))
+}
+
+/// The read-back script for this Keynote.
+pub fn read_script(app: &str) -> String {
+    READ_SCRIPT.replace("__KEYNOTE__", known(app))
+}
+
 fn plain(t: &str) -> bool {
     t.chars().count() <= 100 && !t.chars().any(char::is_control)
 }
@@ -182,13 +238,13 @@ pub fn check(path: &Path, folder: &Path, slides: &[Slide], style: &Style) -> Res
 
 /// The arguments for `/usr/bin/osascript`: the fixed script, then the path, the style and each slide's text as
 /// values.
-pub fn args(path: &Path, slides: &[Slide], style: &Style) -> Vec<String> {
+pub fn args(path: &Path, slides: &[Slide], style: &Style, app: &str) -> Vec<String> {
     let opt = |v: Option<u32>| v.map(|n| n.to_string()).unwrap_or_default();
     let rgb = style.accent;
     let logo = style.logo_box();
     let mut v = vec![
         "-e".to_string(),
-        SCRIPT.to_string(),
+        script(app),
         path.to_string_lossy().into_owned(),
         slides.len().to_string(),
         style.font.clone(),
@@ -220,8 +276,9 @@ pub fn build(
     style: &Style,
 ) -> Result<PathBuf, String> {
     check(path, folder, slides, style)?;
+    let app = find_app().ok_or("Keynote is not installed on this Mac")?;
     let out = std::process::Command::new("/usr/bin/osascript")
-        .args(args(path, slides, style))
+        .args(args(path, slides, style, app))
         .env_clear()
         .env("HOME", std::env::var_os("HOME").unwrap_or_default())
         .stdin(std::process::Stdio::null())
@@ -311,7 +368,7 @@ pub fn slides_from(doc: &crate::office_export::Document) -> Vec<Slide> {
 const READ_SCRIPT: &str = r#"on run argv
 	set sep to (ASCII character 31)
 	set rowSep to (ASCII character 30)
-	tell application "Keynote"
+	tell application id "__KEYNOTE__"
 		set d to open POSIX file (item 1 of argv)
 		set out to ""
 		repeat with s in slides of d
@@ -332,8 +389,9 @@ end run"#;
 
 /// Reads a built deck back through Keynote, without changing it.
 pub fn read_back(path: &Path) -> Result<Vec<Slide>, String> {
+    let app = find_app().ok_or("Keynote is not installed on this Mac")?;
     let out = std::process::Command::new("/usr/bin/osascript")
-        .args(["-e", READ_SCRIPT, &path.to_string_lossy()])
+        .args(["-e", &read_script(app), &path.to_string_lossy()])
         .env_clear()
         .env("HOME", std::env::var_os("HOME").unwrap_or_default())
         .stdin(std::process::Stdio::null())
@@ -440,6 +498,61 @@ mod tests {
         );
     }
 
+    fn fake_app(root: &Path, name: &str, id: &str, binary: bool) -> PathBuf {
+        let app = root.join(name);
+        std::fs::create_dir_all(app.join("Contents")).unwrap();
+        let mut d = plist::Dictionary::new();
+        d.insert("CFBundleIdentifier".into(), id.into());
+        let v = plist::Value::Dictionary(d);
+        let f = app.join("Contents/Info.plist");
+        if binary {
+            v.to_file_binary(&f).unwrap();
+        } else {
+            v.to_file_xml(&f).unwrap();
+        }
+        app
+    }
+
+    #[test]
+    fn keynote_is_found_by_its_bundle_id_whatever_the_app_is_called() {
+        let root = std::env::temp_dir().join(format!("bff-keynote-find-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let studio = fake_app(
+            &root,
+            "Keynote Creator Studio.app",
+            "com.apple.Keynote",
+            false,
+        );
+        let other = fake_app(&root, "Pages.app", "com.apple.iWork.Pages", true);
+        let missing = root.join("Keynote.app");
+        // Only the new Keynote, under its new name (Q2 case 27).
+        assert_eq!(
+            find_app_in(&[missing.clone(), other.clone(), studio.clone()]),
+            Some("com.apple.Keynote")
+        );
+        // An app with another bundle ID is never taken for Keynote.
+        assert_eq!(find_app_in(&[missing.clone(), other.clone()]), None);
+        // With both installed, the older Keynote the script was first checked with is used.
+        let old = fake_app(&root, "Keynote.app", "com.apple.iWork.Keynote", true);
+        assert_eq!(find_app_in(&[studio, old]), Some("com.apple.iWork.Keynote"));
+        assert!(candidates(Path::new("/Users/a"))
+            .contains(&PathBuf::from("/Applications/Keynote Creator Studio.app")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_scripts_name_keynote_by_bundle_id_and_only_a_known_one() {
+        for id in APP_IDS {
+            let s = script(id);
+            assert!(s.contains(&format!("tell application id \"{id}\"")), "{s}");
+            assert!(!s.contains("tell application \"Keynote\""));
+            assert!(read_script(id).contains(&format!("tell application id \"{id}\"")));
+        }
+        assert!(script("com.evil.app").contains(APP_IDS[0]));
+        assert!(!script("com.evil.app").contains("com.evil.app"));
+    }
+
     #[test]
     fn the_script_is_fixed_and_the_text_goes_in_as_separate_values() {
         let tricky = slide("\" & (do shell script \"rm -rf ~\") & \"");
@@ -447,10 +560,12 @@ mod tests {
             Path::new("/p/Deck.key"),
             &[tricky.clone(), slide("Two")],
             &Style::default(),
+            APP_IDS[0],
         );
         assert_eq!(a[0], "-e");
         assert_eq!(
-            a[1], SCRIPT,
+            a[1],
+            script(APP_IDS[0]),
             "the person's text is never part of the script"
         );
         assert!(!SCRIPT.contains("do shell script"));
@@ -477,7 +592,7 @@ mod tests {
         let st = Style::from_look(&look, Some("/p/logo.png".into()));
         assert_eq!(st.accent, Some([65535, 32896, 0]));
         assert_eq!(st.heading_font, "Georgia");
-        let a = args(Path::new("/p/D.key"), &[slide("A")], &st);
+        let a = args(Path::new("/p/D.key"), &[slide("A")], &st, APP_IDS[0]);
         assert_eq!(
             &a[4..14],
             [
@@ -501,7 +616,7 @@ mod tests {
             },
             None,
         );
-        let a = args(Path::new("/p/D.key"), &[slide("A")], &plain);
+        let a = args(Path::new("/p/D.key"), &[slide("A")], &plain, APP_IDS[0]);
         assert!(a[6..14].iter().all(String::is_empty), "{:?}", &a[6..14]);
         assert_eq!(
             a[5], "Georgia",

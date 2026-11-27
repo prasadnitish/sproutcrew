@@ -1,18 +1,6 @@
-// Generates Rust types from the Codex app-server JSON Schema that
-// `codex app-server generate-json-schema` wrote for the pinned binary.
 fn main() {
     build_ocr_program();
     google_client();
-    let path = "schema/codex-0.166.0.v2.schemas.json";
-    println!("cargo:rerun-if-changed={path}");
-    let text = std::fs::read_to_string(path).expect("schema file");
-    let schema: schemars::schema::RootSchema = serde_json::from_str(&text).expect("schema json");
-    let mut space =
-        typify::TypeSpace::new(typify::TypeSpaceSettings::default().with_struct_builder(false));
-    space.add_root_schema(schema).expect("typify");
-    let file = syn::parse2::<syn::File>(space.to_stream()).expect("syn");
-    let out = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("codex_types.rs");
-    std::fs::write(out, prettyplease::unparse(&file)).unwrap();
 }
 
 /// Compiles `ocr/main.swift` into `$OUT_DIR/bff-ocr`, which `ocr.rs` carries inside the crate. Where there

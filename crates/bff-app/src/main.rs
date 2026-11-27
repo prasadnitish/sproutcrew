@@ -31,8 +31,6 @@ struct Shared {
     active: Arc<AtomicUsize>,
     /// Held for the whole of a run of steps, so nothing treats the moment between two steps as idle.
     hold: bff_core::app::RunHold,
-    /// Live runs draw on plan quota, so the interface must confirm once per launch.
-    swept: usize,
     /// The running prototype preview, if any.
     preview: Mutex<Option<bff_core::preview::Preview>>,
     /// GitHub and Notion. A refused credential blocks one until a person unblocks it.
@@ -41,23 +39,6 @@ struct Shared {
     spend: Arc<Mutex<bff_core::spend::SpendBook>>,
     /// The token cap for API routes that count tokens and have no prices.
     tokens: Arc<Mutex<bff_core::spend::SpendBook>>,
-    /// Where `claude` and `codex` were found. Looked for again by the connection checks and when the person
-    /// chooses a program, so a tool installed after launch is picked up without a restart.
-    tools: Arc<Mutex<Found>>,
-}
-
-type Found = std::collections::BTreeMap<String, (PathBuf, String)>;
-
-fn find_tools(data: &std::path::Path) -> Found {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let chosen = bff_core::tools::choices(data);
-    bff_core::tools::CHOOSABLE
-        .iter()
-        .filter_map(|&n| {
-            let found = bff_core::tools::find(n, &home, chosen.get(n).map(PathBuf::as_path))?;
-            Some((n.to_string(), found))
-        })
-        .collect()
 }
 
 /// Only API routes with settings and a key are runnable in the public beta.
@@ -275,12 +256,9 @@ async fn blocking<T: Send + 'static>(
 }
 
 #[tauri::command]
-fn app_info(sh: State<'_, Shared>, app: tauri::AppHandle) -> Value {
+fn app_info(app: tauri::AppHandle) -> Value {
     json!({
         "version": app.package_info().version.to_string(),
-        "codex_found": false,
-        "api_only": true,
-        "swept_orphans": sh.swept,
         "stress_mode": std::env::var_os("BFF_STRESS_REPORT").is_some(),
         "built_at": built_at(),
     })
@@ -316,7 +294,7 @@ fn projects_overview(sh: State<'_, Shared>) -> Value {
     sh.app.lock().expect("app lock").projects_overview()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn create_project(
     sh: State<'_, Shared>,
     name: String,
@@ -388,9 +366,18 @@ fn open_project(sh: State<'_, Shared>, name: String) -> Result<(), String> {
     sh.app.lock().expect("app lock").open_project(&name)
 }
 
+/// Runs a read off the main thread. The interface asks for these every few seconds, and a read that waits for
+/// the project lock on the main thread would freeze the window for as long as an export or a save holds it.
+async fn off_main<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
-fn get_state(sh: State<'_, Shared>, engine: String) -> Result<Value, String> {
-    sh.app.lock().expect("app lock").state(&engine)
+async fn get_state(sh: State<'_, Shared>, engine: String) -> Result<Value, String> {
+    let app = sh.app.clone();
+    off_main(move || app.lock().expect("app lock").state(&engine)).await?
 }
 
 #[tauri::command]
@@ -406,8 +393,13 @@ async fn propose_plan(
         engine: engine.clone(),
         what: "planning the steps".into(),
     });
+    // The project is locked to read the brief and to keep the plan, never while the request is out.
     let r = blocking(&sh, move || {
-        app.lock().expect("app lock").propose(e.as_mut(), now())
+        let (brief, asked) = app.lock().expect("app lock").begin_propose()?;
+        let (plan, usage) = e.propose_plan(&asked)?;
+        app.lock()
+            .expect("app lock")
+            .finish_propose(brief, plan, &usage, now())
     })
     .await?;
     let _ = on_event.send(RunEvent::Finished {
@@ -547,8 +539,11 @@ async fn run_stage(
     });
     if !ok {
         // Only the kind of failure is logged, never the step's words.
-        let kind = bff_core::api_limits::kind_of(&note).map_or("other", |k| k.word());
-        app_log(&sh.data, "step.failed", kind);
+        app_log(
+            &sh.data,
+            "step.failed",
+            bff_core::applog::failure_kind(&note),
+        );
     }
     // A step that made no result did not finish. The screen shows why instead of treating it as done.
     r.and_then(|o| {
@@ -642,7 +637,7 @@ async fn run_wave(
     r.map(|_| Value::Array(rows))
 }
 
-/// Like [`engine_run`] for a call that makes one model request. The project is locked to get ready and to record
+/// Runs a call that makes one model request, announcing it on the channel. The project is locked to get ready and to record
 /// the answer, and the request itself runs with no lock held, so the rest of the app stays usable while it waits.
 async fn engine_phased<P: Send + 'static, R: Send + 'static, T: Send + 'static>(
     sh: &Shared,
@@ -665,34 +660,6 @@ async fn engine_phased<P: Send + 'static, R: Send + 'static, T: Send + 'static>(
         let p = begin(&mut app.lock().expect("app lock"))?;
         let out = run(e.as_mut(), &p);
         finish(&mut app.lock().expect("app lock"), p, out)
-    })
-    .await?;
-    let (ok, note) = match &r {
-        Ok(_) => (true, "done".to_string()),
-        Err(e) => (false, e.clone()),
-    };
-    let _ = on_event.send(RunEvent::Finished { ok, note });
-    r
-}
-
-/// Runs `f` with an engine, announcing it on the channel, the same way a stage run does.
-async fn engine_run<T: Send + 'static>(
-    sh: &Shared,
-    engine: String,
-    what: String,
-    on_event: Channel<RunEvent>,
-    f: impl FnOnce(&mut App, &mut dyn Engine) -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
-    let mut e = engine_for(&engine, sh)?;
-    let app = sh.app.clone();
-    clear_stop(sh);
-    let _ = on_event.send(RunEvent::Started {
-        engine,
-        what: what.clone(),
-    });
-    let _pulse = Pulse::start(on_event.clone(), what);
-    let r = blocking(sh, move || {
-        f(&mut app.lock().expect("app lock"), e.as_mut())
     })
     .await?;
     let (ok, note) = match &r {
@@ -755,9 +722,15 @@ async fn revise(
         "a revision of {}",
         sh.app.lock().expect("app lock").stage_title(&artifact)
     );
-    engine_run(&sh, engine, what, on_event, move |app, e| {
-        app.revise(e, &artifact, &by, &base, now())
-    })
+    engine_phased(
+        &sh,
+        engine,
+        what,
+        on_event,
+        move |app| app.begin_revise(&artifact, &by, &base, now()),
+        |e, p| bff_core::peer::Peer::run_revise_call(e, p),
+        move |app, p, run| app.finish_revise(p, run, now()),
+    )
     .await
 }
 
@@ -769,12 +742,6 @@ fn set_budget(sh: State<'_, Shared>, limit: u64, per_task: u64) -> Result<(), St
 #[tauri::command]
 fn set_project_limit(sh: State<'_, Shared>, dollars: f64) -> Result<Value, String> {
     sh.app.lock().expect("app lock").set_project_limit(dollars)
-}
-
-/// The old name of `set_project_limit`, kept so an older window still works.
-#[tauri::command]
-fn raise_project_limit(sh: State<'_, Shared>, dollars: f64) -> Result<Value, String> {
-    set_project_limit(sh, dollars)
 }
 
 #[tauri::command]
@@ -822,6 +789,16 @@ fn spend_raise(sh: State<'_, Shared>, unit: String, new_cap: f64) -> Result<Valu
             .raise_cap((new_cap * 1_000_000.0).round() as u64),
         other => Err(format!("{other:?} is not a unit. Use tokens or dollars")),
     }?;
+    // The approval is the way on from a stop held for this cap, so the next request goes ahead without a
+    // restart (Q2-B10). A stop for any other reason stays held.
+    let cap = if unit == "tokens" {
+        "token_cap"
+    } else {
+        "spending_cap"
+    };
+    if sh.latch.clear_cap(cap) {
+        app_log(&sh.data, "stop.cleared", cap);
+    }
     Ok(spend_status(sh))
 }
 
@@ -1129,7 +1106,9 @@ fn unblock_connector(sh: State<'_, Shared>, id: String) -> bool {
     sh.connectors.lock().expect("connectors lock").unblock(&id)
 }
 
-#[tauri::command]
+// Commands that take the app lock while a project is being made run off the main thread, so a slow call can never
+// freeze the window, Cancel or Quit (QA Q2-B1).
+#[tauri::command(async)]
 fn use_workflow(
     sh: State<'_, Shared>,
     name: String,
@@ -1173,7 +1152,7 @@ fn set_running_code(sh: State<'_, Shared>, on: bool) -> Result<bool, String> {
 }
 
 /// Adds a clickable prototype step to the open project's plan, or takes it out.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_prototype(sh: State<'_, Shared>, on: bool) -> Result<(), Vec<String>> {
     let allowed = bff_core::running_code::allowed(&sh.data);
     sh.app
@@ -1189,13 +1168,29 @@ async fn add_source_path(sh: State<'_, Shared>, path: String) -> Result<Value, S
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_default();
-    let (prepared, folder) = blocking(&sh, move || {
+    bff_core::ocr::allow_reading();
+    let started = std::time::Instant::now();
+    let read = blocking(&sh, move || {
         let (files, folder) = App::read_source_path(&path, &home)?;
         Ok::<_, String>((App::prepare_files(files), folder))
     })
-    .await??;
+    .await?;
+    // How long reading took, never what was read, so a slow file shows in a log for a bug report.
+    let secs = started.elapsed().as_secs();
+    app_log(
+        &sh.data,
+        "source.read",
+        &format!("{} in {secs} s", if read.is_ok() { "ok" } else { "failed" }),
+    );
+    let (prepared, folder) = read?;
     let kept = sh.app.lock().expect("app lock").keep_prepared(prepared)?;
     App::folder_result(kept, folder)
+}
+
+/// The person pressed Cancel while files were being added: any picture or scan being read is stopped at once.
+#[tauri::command]
+fn stop_reading() {
+    bff_core::ocr::stop_reading();
 }
 
 /// Reads a web page or a shared Google document and keeps its text as a source. The page is fetched on a
@@ -1366,7 +1361,7 @@ fn memory_remove(sh: State<'_, Shared>, id: String) -> Result<(), String> {
 }
 
 /// Sets the rules for the exercise, or clears them with empty text.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_exercise_rules(sh: State<'_, Shared>, text: String) -> Result<Value, String> {
     sh.app
         .lock()
@@ -1456,7 +1451,7 @@ fn coordinator_dismiss(sh: State<'_, Shared>, id: String) -> Result<(), String> 
 /// for an approved plan that allows it.
 fn file_tools(home: &str) -> bff_core::clientfiles::Tools {
     let mut t = bff_core::clientfiles::Tools::detect(home);
-    t.keynote = std::path::Path::new("/Applications/Keynote.app").is_dir();
+    t.keynote = bff_core::keynote::find_app().is_some();
     t
 }
 
@@ -1476,10 +1471,17 @@ fn path_info(paths: Vec<String>) -> Vec<Value> {
     paths.iter().map(|p| App::path_info(p, &home)).collect()
 }
 
+/// Whether a step is running anywhere, so a screen that was refused because of it can clear its message when the
+/// run ends. It reads a count only.
+#[tauri::command]
+fn work_running(sh: State<'_, Shared>) -> bool {
+    sh.active.load(Ordering::SeqCst) > 0
+}
+
 /// Whether Keynote is installed on this Mac.
 #[tauri::command]
 fn keynote_installed() -> bool {
-    std::path::Path::new("/Applications/Keynote.app").is_dir()
+    bff_core::keynote::find_app().is_some()
 }
 
 /// Makes the Word file, the PDF, and the deck for the client from two steps' results.
@@ -1628,8 +1630,9 @@ fn request_dependency_install(sh: State<'_, Shared>, task: String) -> Result<(),
 }
 
 #[tauri::command]
-fn decision_inbox(sh: State<'_, Shared>) -> Value {
-    sh.app.lock().expect("app lock").decision_inbox()
+async fn decision_inbox(sh: State<'_, Shared>) -> Result<Value, String> {
+    let app = sh.app.clone();
+    off_main(move || app.lock().expect("app lock").decision_inbox()).await
 }
 
 #[tauri::command]
@@ -1781,15 +1784,15 @@ fn exported(sh: &Shared, path: &str) -> Result<std::path::PathBuf, String> {
     Err("only files made by SproutCrew can be shown".into())
 }
 
-/// Opens a finished Word file, PDF, or deck in the app the person uses for it.
+/// Opens a finished Word file, PDF, deck (PowerPoint or Keynote) or workbook in the app the person uses for it.
 #[tauri::command]
 fn open_export(sh: State<'_, Shared>, path: String) -> Result<(), String> {
     let p = exported(&sh, &path)?;
     if !matches!(
         p.extension().and_then(|e| e.to_str()),
-        Some("docx" | "pdf" | "pptx")
+        Some("docx" | "pdf" | "pptx" | "xlsx" | "key")
     ) {
-        return Err("only a Word file, a PDF, or a deck can be opened".into());
+        return Err("only a Word file, a PDF, a deck, or a workbook can be opened".into());
     }
     std::process::Command::new("/usr/bin/open")
         .arg(&p)
@@ -1906,53 +1909,6 @@ fn export_log(app: tauri::AppHandle, sh: State<'_, Shared>) -> Result<String, St
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(out.display().to_string())
-}
-
-/// Whether this build can update itself: it was built with an updater key and an address to check.
-fn updates_on(app: &tauri::AppHandle) -> bool {
-    app.config().plugins.0.contains_key("updater")
-}
-
-/// Asks the release address whether a newer version exists. Nothing is downloaded.
-#[tauri::command]
-async fn check_update(app: tauri::AppHandle) -> Result<Value, String> {
-    use tauri_plugin_updater::UpdaterExt;
-    if !updates_on(&app) {
-        return Ok(json!({ "available": false, "set_up": false }));
-    }
-    let found = app.updater().map_err(|e| e.to_string())?.check().await;
-    match found {
-        Ok(Some(u)) => {
-            Ok(json!({ "available": true, "set_up": true, "version": u.version, "notes": u.body }))
-        }
-        Ok(None) => Ok(json!({ "available": false, "set_up": true })),
-        Err(e) => Err(format!("Could not check for updates: {e}")),
-    }
-}
-
-/// Downloads the newer version, checks its signature against the key built into this app, installs it, and
-/// restarts. Refused while a step is running, so no work is cut off.
-#[tauri::command]
-async fn install_update(app: tauri::AppHandle, sh: State<'_, Shared>) -> Result<(), String> {
-    use tauri_plugin_updater::UpdaterExt;
-    if sh.active.load(Ordering::SeqCst) > 0 {
-        return Err("A step is running. Update when it has finished.".into());
-    }
-    if !updates_on(&app) {
-        return Err("This build cannot update itself".into());
-    }
-    let update = app
-        .updater()
-        .map_err(|e| e.to_string())?
-        .check()
-        .await
-        .map_err(|e| format!("Could not check for updates: {e}"))?
-        .ok_or("SproutCrew is up to date")?;
-    update
-        .download_and_install(|_, _| {}, || {})
-        .await
-        .map_err(|e| format!("The update did not install: {e}"))?;
-    app.restart()
 }
 
 /// The only addresses the About section opens: SproutCrew's own pages and mail, and the bundled programs' licenses.
@@ -2151,9 +2107,23 @@ async fn export_package(sh: State<'_, Shared>, run_instructions: String) -> Resu
     blocking(&sh, move || {
         let home = std::env::var("HOME").unwrap_or_default();
         let tools = file_tools(&home);
-        app.lock()
-            .expect("app lock")
-            .export_package(&run_instructions, &tools, now())
+        let (mut shown, target) = {
+            let mut a = app.lock().expect("app lock");
+            (a.export_package(&run_instructions, &tools, now())?, a.documents_target())
+        };
+        // The set goes to Documents/SproutCrew/<project>, where the other files go, and not only to the app's hidden
+        // folder (QA case 6). The copy runs after the lock is let go, as macOS may ask first.
+        if let (Some((base, project)), Some(made)) = (target, shown["path"].as_str().map(PathBuf::from)) {
+            match bff_core::documents::copy_folder_into(&base, &project, &made) {
+                Ok(copy) => shown["path"] = json!(copy.to_string_lossy()),
+                Err(e) => {
+                    if let Some(notes) = shown["notes"].as_array_mut() {
+                        notes.push(json!(format!("The set could not be copied to your Documents folder, so it is in the app's own folder: {e}")));
+                    }
+                }
+            }
+        }
+        Ok::<_, String>(shown)
     })
     .await?
 }
@@ -2168,25 +2138,25 @@ fn discover_tools(sh: State<'_, Shared>) -> Result<Value, String> {
 }
 
 /// The skills that suit these roles, for setup to show before a project exists.
-#[tauri::command]
+#[tauri::command(async)]
 fn recommended_skills(roles: Vec<String>) -> Value {
     let home = std::env::var("HOME").unwrap_or_default();
     json!(App::recommended_skills(std::path::Path::new(&home), &roles))
 }
 
 /// Adds web research as the plan's first step, or takes it away.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_web_research(sh: State<'_, Shared>, on: bool) -> Result<(), Vec<String>> {
     sh.app.lock().expect("app lock").set_web_research(on, now())
 }
 
 /// Adds or removes the last step that removes the signs of machine writing.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_humaniser(sh: State<'_, Shared>, on: bool) -> Result<(), Vec<String>> {
     sh.app.lock().expect("app lock").set_humaniser(on, now())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn select_tool(sh: State<'_, Shared>, kind: String, name: String) -> Result<(), String> {
     let home = std::env::var("HOME").unwrap_or_default();
     sh.app
@@ -2217,71 +2187,17 @@ fn start_preview(sh: State<'_, Shared>) -> Result<String, String> {
     Ok(url)
 }
 
-/// Where `claude` and `codex` were found, looked for again now, and which of them the person chose by hand.
-#[tauri::command]
-async fn tools(sh: State<'_, Shared>) -> Result<Value, String> {
-    let data = sh.data.clone();
-    let tools = sh.tools.clone();
-    blocking(&sh, move || {
-        let found = find_tools(&data);
-        *tools.lock().expect("tools lock") = found.clone();
-        tool_list(&data, &found)
-    })
-    .await
-    .inspect(|_| refresh_runnable(&sh))
-}
-
-fn tool_list(data: &std::path::Path, found: &Found) -> Value {
-    let chosen = bff_core::tools::choices(data);
-    let list: Vec<Value> = bff_core::tools::CHOOSABLE
-        .iter()
-        .map(|&n| {
-            let (path, version) = found.get(n).cloned().unzip();
-            json!({ "name": n, "path": path, "version": version, "chosen": chosen.get(n) })
-        })
-        .collect();
-    json!(list)
-}
-
-/// Keeps a program the person pointed at for `claude` or `codex`, or forgets the choice when `path` is empty.
-#[tauri::command]
-async fn choose_tool(sh: State<'_, Shared>, name: String, path: String) -> Result<Value, String> {
-    let data = sh.data.clone();
-    let tools = sh.tools.clone();
-    blocking(&sh, move || {
-        let path = path.trim();
-        let chosen = (!path.is_empty()).then(|| PathBuf::from(path));
-        bff_core::tools::choose(&data, &name, chosen.as_deref())?;
-        let found = find_tools(&data);
-        *tools.lock().expect("tools lock") = found.clone();
-        Ok(tool_list(&data, &found))
-    })
-    .await?
-    .inspect(|_| refresh_runnable(&sh))
-}
-
-/// Checks before a run: CLI versions, plan windows, credit balance, tools, and disk.
+/// Checks before a run: API connections, export tools, and disk.
 #[tauri::command]
 async fn preflight(sh: State<'_, Shared>) -> Result<Value, String> {
     let data = sh.data.clone();
-    let latch = sh.latch.clone();
-    let tools = sh.tools.clone();
-    blocking(&sh, move || {
-        let found = find_tools(&data);
-        *tools.lock().expect("tools lock") = found.clone();
-        preflight_checks(&data, &latch, &found)
-    })
-    .await?
-    .inspect(|_| refresh_runnable(&sh))
+    blocking(&sh, move || preflight_checks(&data))
+        .await?
+        .inspect(|_| refresh_runnable(&sh))
 }
 
-fn preflight_checks(
-    data: &std::path::Path,
-    latch: &bff_core::stop::StopLatch,
-    found: &Found,
-) -> Result<Value, String> {
+fn preflight_checks(data: &std::path::Path) -> Result<Value, String> {
     let home = std::env::var("HOME").unwrap_or_default();
-    let _ = (latch, found); // Subscription logins are deliberately never inspected in this build.
     let keys = bff_core::keychain::Keychain::new();
     let ready = bff_core::apiconfig::states(&api_config(data), &|n| keys.present(n))
         .iter()
@@ -2431,6 +2347,7 @@ struct PlanPreflight {
 async fn plan_preflight(sh: State<'_, Shared>) -> Result<PlanPreflight, String> {
     let data = sh.data.clone();
     let app = sh.app.clone();
+    let tokens = sh.tokens.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let routes = api_config(&data);
         // The prices come first: with no saved list, wait for the fetch the picker would start, so a new Mac does
@@ -2457,7 +2374,12 @@ async fn plan_preflight(sh: State<'_, Shared>) -> Result<PlanPreflight, String> 
             })
             .flatten();
         let a = app.lock().expect("app lock");
-        let estimate = a.plan_estimate(&routes, saved.as_ref(), left)?;
+        let mut estimate = a.plan_estimate(&routes, saved.as_ref(), left)?;
+        // A plan on token-counted routes is checked against what the shared token cap has left (Q2-B9).
+        if estimate.estimated_tokens > 0 {
+            let left = tokens.lock().expect("tokens lock").status().available;
+            estimate = estimate.against_token_cap(left);
+        }
         Ok(PlanPreflight {
             estimate,
             prices_error,
@@ -2541,11 +2463,6 @@ fn main() {
                 "app.start",
                 &format!("version {}", app.package_info().version),
             );
-            // Recovery, not prevention: end any child a crash or force quit left behind.
-            let swept =
-                bff_core::sweep::sweep(&data.join("children.jsonl"), Duration::from_secs(2))
-                    .map(|v| v.iter().filter(|s| s.ended).count())
-                    .unwrap_or(0);
             // If a saved book cannot be read, the history that would justify any spending is lost, so that book
             // allows no spending until the person fixes the file. It is never replaced by a fresh allowance.
             let spend =
@@ -2572,12 +2489,10 @@ fn main() {
                 latch: bff_core::stop::StopLatch::new(),
                 spend: Arc::new(Mutex::new(spend)),
                 tokens: Arc::new(Mutex::new(tokens)),
-                tools: Arc::new(Mutex::new(find_tools(&data))),
                 data,
                 cancel: Arc::new(AtomicBool::new(false)),
                 hold: bff_core::app::RunHold::new(active.clone()),
                 active,
-                swept,
                 preview: Mutex::new(None),
                 connectors: Arc::new(Mutex::new({
                     let mut c = bff_core::connector::Connectors::default();
@@ -2595,11 +2510,6 @@ fn main() {
             });
             attention::start(app.handle(), &app.state::<Shared>().data)?;
             menu_bar(app.handle())?;
-            // Registered only when the build carries an updater key, so a build without one still starts.
-            if updates_on(app.handle()) {
-                app.handle()
-                    .plugin(tauri_plugin_updater::Builder::new().build())?;
-            }
             // The predefined Quit item appears to bypass ExitRequested, so Quit is a custom item.
             let quit = MenuItemBuilder::with_id("quit", "Quit SproutCrew")
                 .accelerator("CmdOrCtrl+Q")
@@ -2627,9 +2537,14 @@ fn main() {
             if event.id().as_ref() != "quit" {
                 return;
             }
-            // Safe pause: interrupt the running turn, wait for it to be journaled, then exit.
+            // Safe pause: interrupt the running turn, wait for it to be journaled, then exit. A picture or scan being
+            // read is stopped at once, and the window goes away now, so Quit is seen to work.
             let sh = app.state::<Shared>();
             sh.cancel.store(true, Ordering::SeqCst);
+            bff_core::ocr::stop_reading();
+            for (_, w) in app.webview_windows() {
+                let _ = w.hide();
+            }
             let (active, handle) = (sh.active.clone(), app.clone());
             std::thread::spawn(move || {
                 let end = std::time::Instant::now() + Duration::from_secs(20);
@@ -2648,6 +2563,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
+            stop_reading,
             attention_status,
             set_notifications,
             test_notification,
@@ -2689,16 +2605,12 @@ fn main() {
             project_results,
             export_client_files,
             final_files,
-            tools,
-            choose_tool,
             save_key,
             save_own_ai,
             remove_own_ai,
             openrouter_limits,
             remove_key,
             open_link,
-            check_update,
-            install_update,
             open_export,
             reveal_export,
             reveal_code,
@@ -2734,7 +2646,6 @@ fn main() {
             api_routes,
             spend_status,
             set_project_limit,
-            raise_project_limit,
             export_usage_csv,
             save_result_to_folder,
             notify_run,
@@ -2790,6 +2701,7 @@ fn main() {
             set_prototype,
             set_keynote,
             keynote_installed,
+            work_running,
             path_info,
             deselect_tool,
             start_preview,

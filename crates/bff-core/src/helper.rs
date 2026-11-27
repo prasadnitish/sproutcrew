@@ -8,7 +8,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 /// What a helper printed, and how it ended.
@@ -18,6 +18,8 @@ pub struct Output {
     pub success: bool,
     /// The helper printed more than the cap, so `stdout` is cut.
     pub too_long: bool,
+    /// A stop request ended it before it finished.
+    pub stopped: bool,
 }
 
 /// A folder only this user can use, made if it is missing. Refused when it is a link or belongs to someone else.
@@ -32,7 +34,7 @@ pub fn private_dir() -> Result<PathBuf, String> {
     let meta = std::fs::symlink_metadata(&dir).map_err(|e| e.to_string())?;
     if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
         return Err(format!(
-            "{} is not a private folder, so BFF will not use it",
+            "{} is not a private folder, so SproutCrew will not use it",
             dir.display()
         ));
     }
@@ -93,6 +95,18 @@ pub fn run<S: AsRef<OsStr>>(
     limit: Duration,
     max_out: usize,
 ) -> Result<Output, String> {
+    run_until(program, args, limit, max_out, None)
+}
+
+/// As [`run`], and also killed as soon as `stop` is set, with `stopped` set in the answer. A person's Cancel or
+/// Quit sets it, so a slow read never holds them up.
+pub fn run_until<S: AsRef<OsStr>>(
+    program: &Path,
+    args: &[S],
+    limit: Duration,
+    max_out: usize,
+    stop: Option<&AtomicBool>,
+) -> Result<Output, String> {
     let mut child = Command::new(program)
         .args(args)
         .env_clear()
@@ -110,7 +124,7 @@ pub fn run<S: AsRef<OsStr>>(
         buf
     });
     let end = Instant::now() + limit;
-    let (mut timed_out, mut success) = (false, false);
+    let (mut timed_out, mut success, mut stopped) = (false, false, false);
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
@@ -123,6 +137,12 @@ pub fn run<S: AsRef<OsStr>>(
                 let _ = child.wait();
                 return Err(e.to_string());
             }
+        }
+        if stop.is_some_and(|s| s.load(Ordering::SeqCst)) {
+            stopped = true;
+            let _ = child.kill();
+            let _ = child.wait();
+            break;
         }
         if Instant::now() >= end {
             timed_out = true;
@@ -140,12 +160,39 @@ pub fn run<S: AsRef<OsStr>>(
         timed_out,
         success,
         too_long,
+        stopped,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stop_request_ends_a_running_helper_at_once() {
+        // QA Q2-B1: a slow read could not be stopped by Cancel or Quit.
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = stop.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            flag.store(true, Ordering::SeqCst);
+        });
+        let started = Instant::now();
+        let out = run_until(
+            Path::new("/bin/sleep"),
+            &["20"],
+            Duration::from_secs(30),
+            100,
+            Some(&stop),
+        )
+        .unwrap();
+        assert!(out.stopped && !out.success, "{:?}", out.stopped);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+    }
 
     #[test]
     fn a_helper_runs_with_an_empty_environment_and_its_output_is_returned() {

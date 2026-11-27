@@ -30,6 +30,22 @@ pub struct Estimate {
     pub estimated_usd: Option<f64>,
     /// Dollars at every step's request bounds. `None` is unknown.
     pub max_usd: Option<f64>,
+    /// Tokens the plan could use on routes that count tokens against the app's token cap: per step, a typical
+    /// share of the input bound and the whole output bound, which each request holds before it is sent.
+    pub estimated_tokens: u64,
+    /// Tokens left under the token cap, when the app gave it.
+    pub tokens_left: Option<u64>,
+    /// True when the plan could need more tokens than are left under the cap (Q2-B9).
+    pub tokens_short: bool,
+}
+
+impl Estimate {
+    /// The estimate checked against what is left under the token cap.
+    pub fn against_token_cap(mut self, left: u64) -> Estimate {
+        self.tokens_left = Some(left);
+        self.tokens_short = self.estimated_tokens > left;
+        self
+    }
 }
 
 fn is_free(model: &str) -> bool {
@@ -71,6 +87,7 @@ pub fn estimate(
     let mut free_requests = 0;
     let mut est = Some(0.0);
     let mut max = Some(0.0);
+    let mut tokens = 0u64;
     for stage in &plan.stages {
         let (route, model) = match &stage.uses {
             Some(u) => (u.route.as_str(), u.model.as_str()),
@@ -91,6 +108,10 @@ pub fn estimate(
             free_requests += 1;
         }
         let cfg = routes.get(route);
+        if let Some(c) = cfg.filter(|c| c.token_mode) {
+            tokens += (c.bounds.max_input_tokens as f64 * TYPICAL_INPUT) as u64
+                + c.bounds.max_output_tokens;
+        }
         let cost = price(route, model, cfg, catalog).zip(cfg.map(|c| c.bounds));
         match cost {
             Some(((input, output), b)) => {
@@ -121,6 +142,9 @@ pub fn estimate(
         free_short: free_remaining.is_some_and(|left| (free_requests as u64) > left),
         estimated_usd: est,
         max_usd: max,
+        estimated_tokens: tokens,
+        tokens_left: None,
+        tokens_short: false,
     }
 }
 
@@ -237,6 +261,25 @@ mod tests {
         assert!((max - (2.0 * 0.010 + 0.0138)).abs() < 1e-9, "{max}");
         assert!(e.estimated_usd.unwrap() < max);
         assert_eq!((e.free_requests, e.free_short), (0, false));
+    }
+
+    #[test]
+    fn a_plan_warns_when_it_could_use_more_tokens_than_the_token_cap_has_left() {
+        let p = plan(
+            vec![stage("a", "writer", None), stage("b", "reviewer", None)],
+            "anthropic/claude-haiku-5.5",
+            "mistralai/mistral-small-2603",
+        );
+        let e = estimate(&p, &routes(), Some(&catalog()), None);
+        // Each step: a quarter of the 60,000 input bound, typical, plus its full 8,000 output bound.
+        assert_eq!(e.estimated_tokens, 2 * (15_000 + 8_000));
+        assert_eq!((e.tokens_left, e.tokens_short), (None, false));
+        let short = e.clone().against_token_cap(45_000);
+        assert_eq!(
+            (short.tokens_left, short.tokens_short),
+            (Some(45_000), true)
+        );
+        assert!(!e.against_token_cap(46_000).tokens_short);
     }
 
     #[test]

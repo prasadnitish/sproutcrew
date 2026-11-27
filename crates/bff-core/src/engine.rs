@@ -47,11 +47,6 @@ pub trait Engine: Send {
     /// `"live"` or `"replay"`. An interface shows this beside anything the engine produced.
     fn label(&self) -> &'static str;
     fn propose_plan(&mut self, brief: &str) -> Result<(Plan, Vec<Entry>), String>;
-    /// The plan windows this engine's login reports right now, as `(name, percent used)`, or `None` when it has no
-    /// plan or cannot say. The routing engine reads these for every plan, not only the one a step runs on.
-    fn plan_windows(&mut self) -> Option<Vec<(String, f64)>> {
-        None
-    }
     /// A worker that may write inside its own task folder.
     fn run_worker(&mut self, req: &Request) -> WorkerResult;
     /// A reviewer that may read the task folder and must answer with JSON matching `schema`.
@@ -133,29 +128,10 @@ impl RoutedEngine {
         self
     }
 
-    /// Why nothing may be sent right now, if so. Every couple of minutes it also reads the plan windows of both
-    /// plans, so a window at the stop threshold on the plan a step is not using still holds everything back.
+    /// Why nothing may be sent right now, if so.
     fn blocked(&mut self) -> Option<String> {
         if let Some(Err(why)) = self.latch.as_ref().map(|l| l.check()) {
             return Some(why);
-        }
-        if self
-            .latch
-            .as_ref()
-            .is_some_and(|l| l.poll_due(std::time::Duration::from_secs(120)))
-        {
-            let mut found = None;
-            for (route, e) in [("Codex", &mut self.r1), ("Claude", &mut self.r2)] {
-                for (name, percent) in e.plan_windows().unwrap_or_default() {
-                    if percent.round() >= crate::stop::STOP_PERCENT && found.is_none() {
-                        found = Some(format!("{route} plan window {name} is at {percent}%"));
-                    }
-                }
-            }
-            if let (Some(why), Some(l)) = (found, &self.latch) {
-                l.trip(&why);
-                return l.check().err();
-            }
         }
         if self
             .cancel
@@ -2671,77 +2647,6 @@ mod tests {
         assert!(
             s.stand_ins_used().unwrap().is_empty(),
             "a clean rerun clears it"
-        );
-    }
-
-    /// An engine that reports one plan window and counts how often it was asked.
-    struct Window(f64, std::sync::Arc<std::sync::atomic::AtomicUsize>);
-    impl Engine for Window {
-        fn label(&self) -> &'static str {
-            "replay"
-        }
-        fn propose_plan(&mut self, _: &str) -> Result<(Plan, Vec<Entry>), String> {
-            Err("n/a".into())
-        }
-        fn plan_windows(&mut self) -> Option<Vec<(String, f64)>> {
-            self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Some(vec![("week".into(), self.0)])
-        }
-        fn run_worker(&mut self, req: &Request) -> WorkerResult {
-            WorkerResult {
-                completed: true,
-                note: "ok".into(),
-                usage: usage_entries(req.step, req.model, None, None),
-            }
-        }
-    }
-
-    #[test]
-    fn a_plan_window_at_the_threshold_on_the_other_plan_holds_a_step_on_this_one_and_is_read_only_every_so_often(
-    ) {
-        let reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let latch = crate::stop::StopLatch::new();
-        let mut e = RoutedEngine::new(
-            Box::new(Window(4.0, reads.clone())),
-            Box::new(Window(61.0, reads.clone())),
-        )
-        .with_latch(latch.clone());
-        let dir = std::env::temp_dir();
-        let req = Request {
-            web: false,
-            route: "R1",
-            step: "t1",
-            task_dir: &dir,
-            prompt: "p",
-            model: "gpt-6-luna",
-            effort: "low",
-        };
-        // The step is on Codex at 4 percent, but Claude's window is at 61 percent.
-        let r = e.run_worker(&req);
-        assert!(
-            !r.completed && r.note.contains("Claude plan window"),
-            "{}",
-            r.note
-        );
-        assert!(latch.reason().is_some());
-        let n = reads.load(std::sync::atomic::Ordering::SeqCst);
-        // While the stop holds nothing reads the windows again.
-        e.run_worker(&req);
-        assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), n);
-
-        // Under the threshold the step runs, and a second step soon after does not read the windows again.
-        let reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let mut e = RoutedEngine::new(
-            Box::new(Window(4.0, reads.clone())),
-            Box::new(Window(20.0, reads.clone())),
-        )
-        .with_latch(crate::stop::StopLatch::new());
-        assert!(e.run_worker(&req).completed);
-        assert!(e.run_worker(&req).completed);
-        assert_eq!(
-            reads.load(std::sync::atomic::Ordering::SeqCst),
-            2,
-            "both plans read once, not on every step"
         );
     }
 }

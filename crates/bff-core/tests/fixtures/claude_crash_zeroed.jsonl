@@ -1,3 +1,0 @@
-{"type":"system","subtype":"init","session_id":"s1","model":"claude-haiku-5-5","tools":["Read"],"mcp_servers":[],"apiKeySource":"none"}
-{"type":"assistant","message":{"id":"msg_A","content":[{"type":"text","text":"working"}],"usage":{"input_tokens":120,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
-{"type":"result","subtype":"error_during_execution","is_error":true,"total_cost_usd":0,"usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"modelUsage":{}}

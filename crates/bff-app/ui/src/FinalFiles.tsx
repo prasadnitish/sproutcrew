@@ -105,7 +105,7 @@ function MissingDetails({ ctx, made }: { ctx: Ctx; made: Final }) {
       </div>
       {tooLong && <p className="field-error" role="alert">These answers are too long to save together. Shorten them.</p>}
       <div className="actions">
-        <button className="primary" disabled={!!blocked || !note || tooLong} title={blocked || (note ? undefined : "Type at least one answer first")} onClick={() => finish(note)}>Finish the article</button>
+        <button className="primary" disabled={!!blocked || !note || tooLong} title={blocked || (note ? undefined : "Type at least one answer first")} onClick={() => finish(note)}>Finish with my answers</button>
         <button className="ghost" disabled={!!blocked} title={blocked || undefined} onClick={() => finish(writeAroundNote(gaps))}>Finish with what I have (about 1¢)</button>
       </div>
       <p className="muted">Finishing runs the last step once more, under the approval you already gave. A detail you leave empty stays missing.</p>

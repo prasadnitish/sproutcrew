@@ -4,6 +4,12 @@ export function heldStop(why: string): boolean {
   return why.startsWith("stopped:") && (why.includes("AI work is on hold") || why.includes("cannot tell whether the request was charged"));
 }
 
+/** A stop held because the app's own token or spending cap was reached. A higher cap in Usage lets it go on
+ *  without reopening the app. */
+export function capStop(why: string): boolean {
+  return /the API (token|spending) cap of/i.test(why);
+}
+
 /** A failure note as a sentence: without its "stopped:" or "paused:" label, with a capital and one full stop. The
  *  advice a held stop repeats is left to the box around it. */
 export function plainWhy(why: string): string {

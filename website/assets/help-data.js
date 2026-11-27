@@ -207,7 +207,7 @@ const helpEntries = [
     "id": "costs-2",
     "topic": "costs",
     "q": "Is there a spending cap?",
-    "a": "Paid OpenRouter models stop at $5 per project. Before each request, the app holds the most it could cost against that limit, and refuses a request whose price it does not know. You can change the limit for a project in Usage & limits, up or down, but not below what the project has already spent. There is also a token limit shared by all projects. Set spending controls with your provider too."
+    "a": "Paid OpenRouter models stop at $5 per project. Before each request, the app holds the most it could cost against that limit, and refuses a request whose price it does not know. You can change the limit for a project in Usage & limits, up or down, but not below what the project has already spent. There is also a token cap shared by all projects, 500,000 tokens at first. Before you approve, the plan warns you if the run could use more tokens than the cap has left. When a run reaches the cap, AI work holds until you approve a higher cap in Usage; then press Try again, with no need to reopen the app. Set spending controls with your provider too."
   },
   {
     "id": "costs-3",
@@ -363,7 +363,7 @@ const helpEntries = [
     "id": "code-3",
     "topic": "code",
     "q": "Can the crew build the deck in Keynote?",
-    "a": "Yes, on a Mac with Keynote. When a plan makes slides, the plan card offers Build the deck in Keynote under While it works, Change. Choose Yes and approve the plan. When the files are made, Keynote builds a new deck from the slides, with titles, bullets and presenter notes, saved with the project's other files. It never opens or changes your other files. The deck is then read back and checked against the slides, and any difference is listed. The first time, macOS asks whether Sprout Crew may control Keynote; choose OK. You can change that later in System Settings, Privacy & Security, Automation. The deck uses a clean white Keynote theme. If the project has a template, the deck takes its fonts, its colour for titles and its logo, in the top right corner of each slide, the same as the PowerPoint deck. Text sizes stay Keynote's, because a document's text size is too small on a slide. Pictures from the result itself are not added."
+    "a": "Yes, on a Mac with Keynote, including the Keynote that macOS 27 installs as Keynote Creator Studio. When a plan makes slides, the plan card offers Build the deck in Keynote under While it works, Change. Choose Yes and approve the plan. When the files are made, Keynote builds a new deck from the slides, with titles, bullets and presenter notes, saved with the project's other files. It never opens or changes your other files. The deck is then read back and checked against the slides, and any difference is listed. The first time, macOS asks whether Sprout Crew may control Keynote; choose OK. You can change that later in System Settings, Privacy & Security, Automation. The deck uses a clean white Keynote theme. If the project has a template, the deck takes its fonts, its colour for titles and its logo, in the top right corner of each slide, the same as the PowerPoint deck. Text sizes stay Keynote's, because a document's text size is too small on a slide. Pictures from the result itself are not added."
   },
   {
     "id": "code-4",

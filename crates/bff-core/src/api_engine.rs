@@ -493,8 +493,9 @@ impl ApiEngine {
                     .map(|d| (d * 1_000_000.0).round() as u64);
                 b.settle(&key, reported);
             }
-            // A refusal for rate or credit, and anything refused before sending, cost nothing.
-            Err(_) if limit.is_some() => b.release(&key),
+            // A refusal for rate or credit, and anything refused before sending, cost nothing. A refusal before
+            // sending has no usage, even one that starts with "stopped:" such as the token cap (entry 149).
+            Err(_) if limit.is_some() || outcome.usage.is_empty() => b.release(&key),
             Err(n) if n.starts_with("stopped:") || n.starts_with("the answer was unusable") => {
                 b.settle(&key, None)
             }
@@ -519,6 +520,13 @@ impl ApiEngine {
             usage: entries(step, model, None, None),
             cited: vec![],
         };
+        // A refusal before anything is sent costs nothing, so it records no usage (entry 149). An empty usage list
+        // is how `call` knows to give the project's hold back.
+        let unsent = |note: String| Outcome {
+            text: Err(note),
+            usage: vec![],
+            cited: vec![],
+        };
         let job = Job {
             model: req.model.to_string(),
             effort: req.effort.to_string(),
@@ -536,15 +544,11 @@ impl ApiEngine {
             Ok(b) => b,
             Err(crate::apiroute::Refusal::CannotKeepNothing(what)) => {
                 return (
-                    fail(
-                        req.step,
-                        req.model,
-                        format!("refused: this project's plan says AI providers keep nothing, and {what} cannot promise that, so nothing was sent. Move the step to OpenRouter, or allow providers to keep requests in the plan"),
-                    ),
+                    unsent(format!("refused: this project's plan says AI providers keep nothing, and {what} cannot promise that, so nothing was sent. Move the step to OpenRouter, or allow providers to keep requests in the plan")),
                     None,
                 )
             }
-            Err(r) => return (fail(req.step, req.model, format!("refused: {}", r.plain())), None),
+            Err(r) => return (unsent(format!("refused: {}", r.plain())), None),
         };
         self.seq += 1;
         let key_name = format!("{}-{}", req.step, self.seq);
@@ -554,7 +558,7 @@ impl ApiEngine {
                 .expect("spend book")
                 .reserve(&key_name, built.worst_case_micro)
             {
-                return (fail(req.step, req.model, why), None);
+                return (unsent(why), None);
             }
         }
         if let Err(r) = self
@@ -568,7 +572,7 @@ impl ApiEngine {
                 other => format!("stopped: the API dollar budget cannot take this request ({other:?})"),
             };
             self.book_release(&key_name);
-            return (fail(req.step, req.model, why), None);
+            return (unsent(why), None);
         }
         let cred = self.creds.get(built.credential);
         // The person's own service may need no key, as an app on this Mac usually does.
@@ -578,14 +582,10 @@ impl ApiEngine {
                 let _ = self.allowance.release(METER, &key_name);
                 self.book_release(&key_name);
                 return (
-                    fail(
-                        req.step,
-                        req.model,
-                        format!(
-                            "cannot start: no API key is set for route {}",
-                            self.provider.route()
-                        ),
-                    ),
+                    unsent(format!(
+                        "cannot start: no API key is set for route {}",
+                        self.provider.route()
+                    )),
                     None,
                 );
             }
@@ -1447,6 +1447,39 @@ mod tests {
                 .held,
             0
         );
+    }
+
+    #[test]
+    fn a_request_refused_by_the_token_cap_before_sending_costs_the_project_nothing() {
+        // Entry 149: the refusal starts with "stopped:", like a timeout that may have been billed, but nothing was
+        // sent, so the project's hold goes back and no usage is recorded for it.
+        let (root, task) = project("capped", None);
+        let tokens = Arc::new(Mutex::new(crate::spend::SpendBook::memory_unit(
+            1_000,
+            crate::spend::Unit::Tokens,
+        )));
+        let (e, sent) = token_engine(
+            Provider::OpenRouter,
+            vec![Ok((200, openrouter_ok("never")))],
+            10_000_000,
+            Some(tokens),
+        );
+        let mut e = e.with_project_limit(catalogue());
+        let r = e.run_worker(&req("R12", &task, "anthropic/claude-haiku-5.5"));
+        assert!(!r.completed);
+        assert!(
+            r.note.starts_with("stopped: the API token cap"),
+            "{}",
+            r.note
+        );
+        assert!(sent.lock().unwrap().is_empty(), "nothing is sent");
+        assert!(
+            r.usage.is_empty(),
+            "no usage row for a request never sent: {:?}",
+            r.usage
+        );
+        let st = crate::spend::project_book(&root).lock().unwrap().status();
+        assert_eq!((st.spent, st.held, st.unknown_charges), (0, 0, 0));
     }
 
     #[test]

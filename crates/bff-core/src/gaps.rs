@@ -11,7 +11,7 @@ pub const MARK: &str = "[NEEDED: ";
 /// The first words of the note "Finish with what I have" saves: the step writes around the missing details.
 pub const WRITE_AROUND: &str = "Write around these missing details; do not leave placeholders: ";
 
-/// The first line of the note "Finish the article" saves, followed by one `what: answer` line for each answer.
+/// The first line of the note "Finish with my answers" saves, followed by one `what: answer` line for each answer.
 pub const DETAILS_NOTE: &str = "Details from the person:";
 
 /// What a marker says when it says nothing.

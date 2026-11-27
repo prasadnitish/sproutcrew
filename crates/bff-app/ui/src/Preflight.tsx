@@ -12,6 +12,10 @@ export type Estimate = {
   free_short: boolean;
   estimated_usd: number | null;
   max_usd: number | null;
+  /** Tokens the plan could use under the app's shared token cap, and what the cap has left when known. */
+  estimated_tokens: number;
+  tokens_left: number | null;
+  tokens_short: boolean;
   /** Set when the model prices could not be loaded, which is why the cost is unknown. */
   prices_error?: string | null;
 };
@@ -37,7 +41,12 @@ export function costText(e: Estimate): string {
   return `about ${money(e.estimated_usd)}, at most ${money(e.max_usd)}.`;
 }
 
-export const costLine = (e: Estimate): string => `Cost: ${costText(e)}`;
+/** The warning for a plan that could pass what the shared token cap has left (Q2-B9), or null. */
+export function tokenCapWarning(e: Estimate): string | null {
+  if (!e.tokens_short || e.tokens_left === null) return null;
+  const n = (v: number) => v.toLocaleString("en-US");
+  return `This plan could use about ${n(e.estimated_tokens)} tokens, and ${n(e.tokens_left)} ${e.tokens_left === 1 ? "is" : "are"} left under the API token cap shared by all projects. It may stop part way. Approve a higher cap in Usage before you start.`;
+}
 
 function ModelCount({ id, n }: { id: string; n: number }) {
   return <li>{useModelName(id)} <span className="muted">· {n} step{n === 1 ? "" : "s"}</span></li>;
@@ -58,6 +67,7 @@ export default function Preflight({ e, compact }: { e: Estimate | null; compact?
           This plan needs about {e.free_requests} requests on OpenRouter's free allowance, and {e.free_remaining} {e.free_remaining === 1 ? "is" : "are"} left today. It is likely to stop part way. Choose a paid model for some steps, or add $10 of credit to raise the allowance to 1,000 a day.
         </p>
       )}
+      {tokenCapWarning(e) && <p className="notice warn" role="alert">{tokenCapWarning(e)}</p>}
       {e.free_requests > 0 && !e.free_short && e.free_remaining === null && (
         <p className="muted">{e.free_requests} steps use OpenRouter's free allowance (50 requests a day, or 1,000 with $10 of credit). How much is left today could not be checked.</p>
       )}

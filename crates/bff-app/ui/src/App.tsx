@@ -404,14 +404,13 @@ function AllProjectsCost() {
   );
 }
 
-function Home({ rows, archived, err, note, info, running, onNew, onOpen, onArchive, onRestore }: { rows: Overview[] | null; archived: Overview[]; err: string; note: string; info: Info | null; running: boolean; onNew: () => void; onOpen: (n: string) => void; onArchive: (n: string) => void; onRestore: (n: string) => void }) {
+function Home({ rows, archived, err, note, running, onNew, onOpen, onArchive, onRestore }: { rows: Overview[] | null; archived: Overview[]; err: string; note: string; running: boolean; onNew: () => void; onOpen: (n: string) => void; onArchive: (n: string) => void; onRestore: (n: string) => void }) {
   const [query, setQuery] = useState("");
   const shown = filterProjects(rows ?? [], query);
   return (
     <div className="content-inner home">
       <Toolbar title="Projects" />
       {api.mocked && <p className="notice preview-note">Design preview · Sample projects and results. No real AI calls.</p>}
-      {info && info.swept_orphans > 0 && <p className="muted">Ended {count(info.swept_orphans, "leftover process", "leftover processes")} from a previous session.</p>}
       {err && <p className="notice error" role="alert">{err}</p>}
       {note && <p className="notice" role="status">{note}</p>}
       {rows === null && !err && <Skeleton label="Loading projects" lines={3} />}
@@ -500,7 +499,7 @@ export default function App() {
   // A run that was going when this window loaded cannot still be driven from it, so its hold on the projects is let go.
   useEffect(() => { void api.call("end_run").catch(() => undefined); }, []);
   useEffect(() => {
-    api.call<Info>("app_info").then((i) => { if (i.stress_mode) setStress(true); setInfo(i); }).catch(() => undefined);
+    api.call<Info>("app_info").then((i) => { if (i.stress_mode) setStress(true); }).catch(() => undefined);
   }, []);
   const [splash, setSplash] = useState(!stress);
   const [view, setView] = useState<View>({ k: "board" });
@@ -531,7 +530,6 @@ export default function App() {
   const archived = useMemo(() => allRows?.filter((r) => r.archived) ?? [], [allRows]);
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
-  const [info, setInfo] = useState<Info | null>(null);
   const [running, setRunning] = useState(false);
   const [palette, setPalette] = useState(false);
   const [width, setWidthState] = useState<number | null>(savedWidth());
@@ -586,6 +584,8 @@ export default function App() {
 
   // Why another project could not be opened. It shows where the person is, so nothing about the open project changes.
   const [refusal, setRefusal] = useState("");
+  // The refusal is only true while a step is in flight, so it goes once the run ends.
+  useEffect(() => { if (!running) setRefusal(""); }, [running]);
   const openProject = useCallback(async (n: string): Promise<boolean> => {
     try { await api.call("open_project", { name: n }); }
     catch (e) {
@@ -663,7 +663,7 @@ export default function App() {
         {view.k === "board" && <div className="board-page"><Toolbar title="Board" /><Board empty={rows !== null && rows.length === 0} onNew={() => setView({ k: "new" })} onProjects={() => setView({ k: "home" })} onOpen={(item: DecisionItem, tab) => { try { sessionStorage.setItem("sproutcrew:decision", JSON.stringify(item)); if (tab) sessionStorage.setItem("sproutcrew:tab", tab); } catch { /* no storage */ } void openProject(item.project).then((opened) => { if (!opened) try { sessionStorage.removeItem("sproutcrew:decision"); } catch { /* no storage */ } }); }} /></div>}
         {view.k === "policy" && <div className="content-inner"><Toolbar title="Policy" /><PolicyPage running={runnerOn} onOpen={(n) => void openProject(n)} onSaved={reload} /></div>}
         {view.k === "usage" && <div className="content-inner"><Toolbar title="Usage" /><UsagePage onOpen={(n) => void openProject(n)} /></div>}
-        {view.k === "home" && <Home rows={rows} archived={archived} err={err} note={note} info={info} running={running} onNew={() => setView({ k: "new" })} onOpen={openProject} onArchive={(n) => void setArchived("archive_project", n, `${n} is archived. Its work is kept, and you can restore it below.`)} onRestore={(n) => void setArchived("restore_project", n, `${n} is back in your projects.`)} />}
+        {view.k === "home" && <Home rows={rows} archived={archived} err={err} note={note} running={running} onNew={() => setView({ k: "new" })} onOpen={openProject} onArchive={(n) => void setArchived("archive_project", n, `${n} is archived. Its work is kept, and you can restore it below.`)} onRestore={(n) => void setArchived("restore_project", n, `${n} is back in your projects.`)} />}
         {view.k === "new" && <div className="content-inner"><Toolbar title="New project" /><NewProject key={view.next?.from ?? "new"} next={view.next} nextName={view.nextName} taken={(allRows ?? []).map((r) => r.name)} onOpen={openProject} onBack={() => { if (view.next) void openProject(view.next.from); else setView({ k: "home" }); }} /></div>}
         {view.k === "restart" && <div className="content-inner"><Toolbar title="Start over" /><NewProject key={view.seed.from} restart={view.seed} taken={(allRows ?? []).map((r) => r.name)} onOpen={openProject} onBack={() => void openProject(view.seed.from)} /></div>}
         {view.k === "memory" && <div className="content-inner"><Toolbar title="Memory" /><Memory project={view.back.k === "project" ? view.back.name : null} onProject={() => { if (view.back.k === "project") { try { sessionStorage.setItem("sproutcrew:tab", "material"); } catch { /* no storage */ } setView(view.back); } }} /></div>}

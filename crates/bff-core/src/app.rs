@@ -37,9 +37,9 @@ pub struct App {
     running: Arc<AtomicUsize>,
 }
 
-/// The refusal while a step is in flight: opening or making a project then would send the step's late result to
-/// the wrong place.
-const FINISHING: &str = "Finishing the step that was running…";
+/// Why a project cannot be made or opened while a step is in flight. A step in flight records its result in the open
+/// project, so the person waits for it. It does not say the step is being stopped: it may simply be running.
+const FINISHING: &str = "A step is still running. Try again when it finishes.";
 /// Whether the name or the brief holds text shaped like a key. The brief gets the full scan. A name is only
 /// refused for a named key shape: a long name with a digit in it, such as one the app suggests from the brief,
 /// has the shape of a "high-entropy token" and is not a key.
@@ -1065,6 +1065,13 @@ impl App {
 
     /// Asks the lead for a plan and stores it. The planning usage goes to the ledger even if the plan is refused.
     pub fn propose(&mut self, engine: &mut dyn Engine, now: u64) -> Result<(), String> {
+        let (brief, asked) = self.begin_propose()?;
+        let (plan, usage) = engine.propose_plan(&asked)?;
+        self.finish_propose(brief, plan, &usage, now)
+    }
+
+    /// The brief as the person wrote it, and what the planner is asked: the brief with the project's rules.
+    pub fn begin_propose(&self) -> Result<(String, String), String> {
         let brief = self.studio()?.project.brief()?;
         // The planner is told the rules too, but the plan keeps the brief as the person wrote it.
         let rules = crate::exercise::instructions(&self.studio()?.project.root)?;
@@ -1073,11 +1080,21 @@ impl App {
         } else {
             format!("{brief}\n\n{rules}")
         };
-        let (mut plan, usage) = engine.propose_plan(&asked)?;
+        Ok((brief, asked))
+    }
+
+    /// Keeps the plan the planner returned and records what the request used.
+    pub fn finish_propose(
+        &mut self,
+        brief: String,
+        mut plan: Plan,
+        usage: &[crate::meters::Entry],
+        now: u64,
+    ) -> Result<(), String> {
         plan.brief = brief;
         plan.fallbacks = crate::fallback::stand_ins(&plan.team);
         let s = self.studio_mut()?;
-        s.record_usage(&usage, now)?;
+        s.record_usage(usage, now)?;
         s.set_plan(plan, now).map_err(|p| p.join("; "))
     }
 
@@ -1673,17 +1690,6 @@ impl App {
         )
     }
 
-    /// Registers an existing artifact under the role that owns it.
-    pub fn register_artifact(
-        &mut self,
-        name: &str,
-        owner_role: &str,
-        now: u64,
-    ) -> Result<u32, String> {
-        let (studio, peer) = self.both()?;
-        peer.register(studio, name, owner_role, now)
-    }
-
     /// The first part of a review turn. See [`Peer::begin_review`].
     pub fn begin_review(
         &mut self,
@@ -1767,6 +1773,27 @@ impl App {
     ) -> Result<u32, String> {
         let (studio, peer) = self.both()?;
         peer.revise(studio, engine, name, by_role, base, now)
+    }
+
+    pub fn begin_revise(
+        &mut self,
+        name: &str,
+        by_role: &str,
+        base: &str,
+        now: u64,
+    ) -> Result<crate::peer::PendingRevise, String> {
+        let (studio, peer) = self.both()?;
+        peer.begin_revise(studio, name, by_role, base, now)
+    }
+
+    pub fn finish_revise(
+        &mut self,
+        p: crate::peer::PendingRevise,
+        run: (crate::engine::WorkerResult, f64),
+        now: u64,
+    ) -> Result<u32, String> {
+        let (studio, peer) = self.both()?;
+        peer.finish_revise(studio, p, run, now)
     }
 
     fn outbox(&self) -> Result<crate::outbox::Outbox, String> {
@@ -1873,6 +1900,12 @@ impl App {
             .as_ref()
             .ok_or("the app does not know where your Documents folder is")?;
         self.copy_to_documents_in(base, files)
+    }
+
+    /// Where an Export everything folder is copied: the Documents folder the app was given and the open project.
+    /// The copy itself is made by the caller after it lets go of the app lock, as it may wait on a macOS prompt.
+    pub fn documents_target(&self) -> Option<(PathBuf, String)> {
+        Some((self.documents.clone()?, self.name.clone()?))
     }
 
     /// Copies `files` into `<base>/SproutCrew/<project>/` and returns where each went, in order. A file is never
@@ -2182,7 +2215,7 @@ impl App {
         for (path, _) in listed {
             let text =
                 std::fs::read_to_string(root.join(crate::code::DIR).join(&path)).map_err(|_| {
-                    format!("{path} is not a text file, and BFF writes text files only")
+                    format!("{path} is not a text file, and SproutCrew writes text files only")
                 })?;
             files.push((format!("{folder}/{path}"), text));
         }
@@ -2339,7 +2372,8 @@ impl App {
     }
 
     /// Keeps results of another project as sources of this one, one source per step. The text is marked as
-    /// written by models, and it is checked like any file, so anything planted in it is flagged again.
+    /// written by models, and it is checked like any file, so anything planted in it is flagged again. Only this
+    /// program's own section markers, which a review step quotes, are made plain words first.
     pub fn add_source_results(&mut self, from: &str, stages: &[String]) -> Result<Value, String> {
         if self.name.as_deref() == Some(from) {
             return Err("a project cannot take results from itself".into());
@@ -2355,6 +2389,8 @@ impl App {
             };
             let text = std::fs::read_to_string(self.base.join(from).join("artifacts").join(file))
                 .map_err(|e| format!("{from}: {e}"))?;
+            // The earlier run's own block markers are made plain words, so they are not flagged as imitations.
+            let text = crate::guard::defuse_own_markers(&text);
             let body = format!(
                 "Results from the project \"{from}\", step \"{title}\". These results were written by AI models and not checked by a person, so treat them as evidence to question, not as facts.\n\n{text}"
             );
@@ -2388,10 +2424,10 @@ impl App {
         use crate::sources::ImportError::*;
         match e {
             UnsupportedType(ext) if ext.is_empty() => {
-                format!("{name} has no file type. BFF reads {FILE_TYPES}")
+                format!("{name} has no file type. SproutCrew reads {FILE_TYPES}")
             }
             UnsupportedType(ext) => {
-                format!("{name}: .{ext} is not a type BFF can read yet. Use {FILE_TYPES}")
+                format!("{name}: .{ext} is not a type SproutCrew can read yet. Use {FILE_TYPES}")
             }
             Unreadable(why) => format!("{name}: {why}"),
             TooBig(n) => format!(
@@ -2400,7 +2436,7 @@ impl App {
                 crate::sources::MAX_BYTES / (1024 * 1024)
             ),
             NotAFile => format!("{name} is not a regular file"),
-            BadName(_) => format!("{name} has a name BFF cannot keep"),
+            BadName(_) => format!("{name} has a name SproutCrew cannot keep"),
             Io(m) => format!("{name}: {m}"),
         }
     }
@@ -2632,7 +2668,7 @@ impl App {
         }
     }
 
-    /// A folder where no file could be kept is an error, with the types BFF reads.
+    /// A folder where no file could be kept is an error, with the types SproutCrew reads.
     pub fn folder_result(kept: Value, folder: Option<PathBuf>) -> Result<Value, String> {
         match folder {
             Some(path)
@@ -2642,7 +2678,7 @@ impl App {
                     .unwrap_or(true) =>
             {
                 Err(format!(
-                    "no files BFF can read in {}. It reads {FILE_TYPES}",
+                    "no files SproutCrew can read in {}. It reads {FILE_TYPES}",
                     path.display()
                 ))
             }
@@ -3018,7 +3054,7 @@ impl App {
     }
 
     /// Lets Keynote build a new deck from the deck's slides, or stops it. It changes the plan, so it is approved
-    /// with it. Only a plan that makes a deck can take it.
+    /// with it.
     pub fn set_keynote(&mut self, on: bool, now: u64) -> Result<(), Vec<String>> {
         let mut plan = self
             .studio()
@@ -3026,11 +3062,8 @@ impl App {
             .plan()
             .cloned()
             .ok_or(vec!["there is no plan".to_string()])?;
-        if on && !plan.stages.iter().any(|s| s.id.contains("deck")) {
-            return Err(vec![
-                "This plan makes no slides, so there is no deck for Keynote to build.".to_string(),
-            ]);
-        }
+        // Every plan ends in a deck: its own deck step's, or one made from the document (QA case 27, where only a
+        // case study offered Keynote).
         plan.keynote = on;
         self.studio_mut().map_err(|e| vec![e])?.set_plan(plan, now)
     }
@@ -3824,7 +3857,11 @@ impl App {
                     notes.extend(said);
                     for f in made {
                         let ext = f.path.extension().and_then(|e| e.to_str()).unwrap_or("bin");
-                        let what = if f.kind == "deck" { "deck" } else { "document" };
+                        let what = match f.kind {
+                            "deck" | "keynote" => "deck",
+                            "sheet" => "tables",
+                            _ => "document",
+                        };
                         if let Ok(bytes) = std::fs::read(&f.path) {
                             extras.push((format!("Final {what}.{ext}"), bytes));
                         }
@@ -4950,13 +4987,16 @@ mod tests {
     }
 
     #[test]
-    fn keynote_builds_only_for_a_plan_with_a_deck_that_allows_it_and_is_still_approved() {
+    fn keynote_builds_only_for_a_plan_that_allows_it_and_is_still_approved() {
         let mut a = waves("keynote");
         let can = crate::clientfiles::Tools {
             typst: None,
             keynote: true,
         };
-        assert!(a.set_keynote(true, 4).unwrap_err()[0].contains("no slides"));
+        // Every plan ends in a deck, its own or one made from the document, so a plan with no deck step can take
+        // Keynote too (QA case 27).
+        a.set_keynote(true, 4).unwrap();
+        a.set_keynote(false, 4).unwrap();
         let mut plan = a.studio().unwrap().plan().unwrap().clone();
         plan.stages[3].id = "deck".into();
         a.save_plan(serde_json::to_value(&plan).unwrap(), 5)

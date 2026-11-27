@@ -1,5 +1,5 @@
 import CodeReview from "./CodeReview";
-import { heldStop, plainWhy } from "./failures";
+import { capStop, heldStop, plainWhy } from "./failures";
 import ActionPolicy from "./Policy";
 import { useEffect, useState } from "react";
 import { runner } from "./runner";
@@ -176,6 +176,18 @@ function StepFailed({ ctx, st, why, kind, earlier, onTalk }: { ctx: Ctx; st: Sta
     void ctx.guard(() => api.call("save_plan", { plan: { ...plan, stages } }));
   };
   const retry = () => ctx.guard(() => api.run("run_stage", { engine: ctx.engine, stageId: st.id }, ctx.track));
+  if (heldStop(why) && capStop(why)) {
+    // Approving a higher cap in Usage lifts this hold at once; no restart is needed (Q2-B10).
+    return (
+      <div className="notice error step-failed" role="alert">
+        <p><strong>This step did not finish, and all AI work is on hold until a higher cap is approved.</strong> {plainWhy(why)}</p>
+        <div className="actions tight">
+          <button className="ghost" disabled={ctx.s.gate !== "allowed" || !!ctx.busy} onClick={retry}>Try again</button>
+        </div>
+        <p className="muted small">Approve a higher cap in Usage, then try this step again.</p>
+      </div>
+    );
+  }
   if (heldStop(why)) {
     // Every step is held until the app is reopened, so another model or another try cannot help here.
     return (

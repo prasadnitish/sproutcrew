@@ -47,6 +47,51 @@ pub fn within(root: &Path, path: &Path) -> bool {
     }
 }
 
+/// Copies the folder `src` (an Export everything set) into `<base>/SproutCrew/<project>/` under its own name, or
+/// `name 2`, `name 3` when that is taken, so nothing there is ever replaced. Links are not followed. Returns the copy.
+pub fn copy_folder_into(base: &Path, project: &str, src: &Path) -> Result<PathBuf, String> {
+    let folder = base.join("SproutCrew").join(folder_name(project));
+    std::fs::create_dir_all(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+    let stem = src
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("the export folder has no name")?;
+    let mut target = None;
+    for n in 1..1000 {
+        let path = folder.join(if n == 1 {
+            stem.to_string()
+        } else {
+            format!("{stem} {n}")
+        });
+        match std::fs::create_dir(&path) {
+            Ok(()) => {
+                target = Some(path);
+                break;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("{}: {e}", path.display())),
+        }
+    }
+    let target = target.ok_or("too many copies of this export already")?;
+    fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+        for entry in std::fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let kind = entry.file_type().map_err(|e| e.to_string())?;
+            let dest = to.join(entry.file_name());
+            if kind.is_dir() {
+                std::fs::create_dir(&dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+                copy_tree(&entry.path(), &dest)?;
+            } else if kind.is_file() {
+                std::fs::copy(entry.path(), &dest)
+                    .map_err(|e| format!("{}: {e}", dest.display()))?;
+            }
+        }
+        Ok(())
+    }
+    copy_tree(src, &target)?;
+    Ok(target)
+}
+
 /// Copies `files` into `<base>/SproutCrew/<project>/` and returns where each went, in order. A file is never
 /// replaced. A name already taken by a file with the same bytes is that file, so copying the same thing again adds
 /// nothing; one with other bytes makes `name 2.docx`, then `name 3.docx`.
@@ -187,6 +232,31 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         std::fs::canonicalize(&d).unwrap()
+    }
+
+    #[test]
+    fn an_export_folder_is_copied_whole_into_documents_and_never_replaces_one() {
+        // QA case 6: Export everything was saved in a hidden folder.
+        let d = dir("folder");
+        let src = d.join("package-7");
+        std::fs::create_dir_all(src.join("steps")).unwrap();
+        std::fs::write(src.join("README.md"), "read me").unwrap();
+        std::fs::write(src.join("steps").join("01.md"), "step").unwrap();
+        let docs = d.join("Documents");
+        let first = copy_folder_into(&docs, "My project", &src).unwrap();
+        assert_eq!(
+            first,
+            docs.join("SproutCrew")
+                .join(folder_name("My project"))
+                .join("package-7")
+        );
+        assert_eq!(
+            std::fs::read_to_string(first.join("steps").join("01.md")).unwrap(),
+            "step"
+        );
+        let second = copy_folder_into(&docs, "My project", &src).unwrap();
+        assert_ne!(first, second);
+        assert!(second.join("README.md").is_file());
     }
 
     #[test]

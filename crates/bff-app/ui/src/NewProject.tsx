@@ -6,7 +6,7 @@ import { POLISH_HELP, WEB_HELP } from "./Extras";
 import { suggestName, uniqueName } from "./projects";
 import { CONNECTED_MS, findKeyShape, isKeyInBrief, keyInBriefText, withoutKey } from "./keyshape";
 import type { NextDraft } from "./handoff";
-import { addedLine, PathInfo, pathLabel, sizeLabel } from "./addedFiles";
+import { addedLine, PathInfo, pathLabel, sizeLabel, tooBig } from "./addedFiles";
 import { Chip, Dialog, Panel, text } from "./ui";
 
 /** The outcomes whose plan ends with a step that writes the finished text, so a polishing step can follow it. */
@@ -54,6 +54,11 @@ export default function NewProject({ onOpen, onBack, restart, next, nextName, ta
   const [inherited, setInherited] = useState<Source[]>(restart?.sources ?? []);
   // What the app found about each added path (name, size, folder or not), by the path as given.
   const [pathInfo, setPathInfo] = useState<Record<string, PathInfo>>({});
+  // Files refused as they were added (over the size limit), with the reason, until the next add.
+  const [refused, setRefused] = useState<string[]>([]);
+  // While Create adds the files: the one being read, and whether the person pressed Cancel to stop adding them.
+  const [reading, setReading] = useState("");
+  const stopAdding = useRef(false);
   const [staged, setStaged] = useState<Staged[]>(next ? [{ kind: "results", from: next.from, stages: next.stages }] : []);
   const [author, setAuthor] = useState<Choice>(["R12", DEFAULT_WRITING, "medium"]);
   const [reviewer, setReviewer] = useState<Choice | null>(null);
@@ -84,6 +89,14 @@ export default function NewProject({ onOpen, onBack, restart, next, nextName, ta
   useEffect(() => { if (!named) setName(uniqueName(suggestName(kind, brief), taken, "-")); }, [kind, brief, named, taken.join("\n")]);
   // A create error is read at the button that caused it.
   useEffect(() => { if (createErr) createErrRef.current?.focus(); }, [createErr]);
+  // "A step is still running" goes away by itself once the run ends, so it is never left on the form (QA round 2).
+  useEffect(() => {
+    if (!createErr.startsWith("A step is still running")) return;
+    const t = window.setInterval(() => {
+      api.call<boolean>("work_running").then((on) => { if (!on) setCreateErr(""); }).catch(() => undefined);
+    }, 2000);
+    return () => window.clearInterval(t);
+  }, [createErr]);
   useEffect(() => { if (keyHit) keyHitRef.current?.focus(); }, [keyHit]);
   // "Connected to OpenRouter" shows for a few seconds, then the card goes.
   useEffect(() => {
@@ -118,17 +131,31 @@ export default function NewProject({ onOpen, onBack, restart, next, nextName, ta
   const keyFound = keyHit ? (findKeyShape(brief) ?? findKeyShape(name, true)) : null;
   const nameOk = /^[A-Za-z0-9_-]{1,64}$/.test(name);
   const addPaths = (p: string[]) => {
+    setRefused([]);
     const fresh = p.filter((v) => !staged.some((x) => x.kind === "path" && x.value === v));
     setStaged((s) => [...s, ...p.filter((v) => !s.some((x) => x.kind === "path" && x.value === v)).map((value) => ({ kind: "path" as const, value }))]);
     // The list shows each path by name and size once the app has looked; until then it shows the path as given.
-    if (fresh.length) api.call<PathInfo[]>("path_info", { paths: fresh }).then((info) => setPathInfo((m) => ({ ...m, ...Object.fromEntries(fresh.map((v, i) => [v, info[i]])) }))).catch(() => undefined);
+    if (fresh.length) api.call<PathInfo[]>("path_info", { paths: fresh }).then((info) => {
+      setPathInfo((m) => ({ ...m, ...Object.fromEntries(fresh.map((v, i) => [v, info[i]])) }));
+      // A file over the limit is refused now, not when the project is made, so the list never counts it as added.
+      const big = fresh.flatMap((v, i) => { const why = info[i] && !info[i].is_dir ? tooBig(info[i].name, info[i].size) : null; return why ? [[v, why] as const] : []; });
+      if (big.length) {
+        setStaged((s) => s.filter((x) => !(x.kind === "path" && big.some(([v]) => v === x.value))));
+        setRefused(big.map(([, why]) => why));
+      }
+    }).catch(() => undefined);
   };
   const addUrls = (u: string[]) => setStaged((s) => [...s, ...u.filter((v) => !s.some((x) => x.kind === "url" && x.value === v)).map((value) => ({ kind: "url" as const, value }))]);
   const addResults = (from: string, stages: string[]) => setStaged((s) => [...s, { kind: "results" as const, from, stages }]);
-  const addFiles = (f: File[]) => setStaged((s) => [...s, ...f.map((file) => ({ kind: "file" as const, file }))]);
+  const addFiles = (f: File[]) => {
+    const why = f.flatMap((file) => { const w = tooBig(file.name, file.size); return w ? [w] : []; });
+    setRefused(why);
+    setStaged((s) => [...s, ...f.filter((file) => !tooBig(file.name, file.size)).map((file) => ({ kind: "file" as const, file }))]);
+  };
 
   // `allowKeyShape` is "It isn't a key", for this one create only.
   const create = async (allowKeyShape = false) => {
+    stopAdding.current = false;
     setBusy(true);
     setErr("");
     setCreateErr("");
@@ -147,14 +174,18 @@ export default function NewProject({ onOpen, onBack, restart, next, nextName, ta
     }
     const all: Added = { added: [], skipped: [] };
     for (const f of staged) {
+      // Cancel stops adding files. The project is still made with its plan, so nothing is left half set up.
+      if (stopAdding.current) { all.skipped.push({ name: shown(f), reason: "not added, because you pressed Cancel. Add it later in Sources" }); continue; }
+      setReading(shown(f));
       try {
         const r = f.kind === "results" ? await api.call<Added>("add_source_results", { from: f.from, stages: f.stages }) : f.kind === "path" ? await api.call<Added>("add_source_path", { path: f.value }) : f.kind === "url" ? await api.call<Added>("add_source_url", { url: f.value }) : await api.addFile(f.file);
         all.added.push(...r.added);
         all.skipped.push(...r.skipped);
       } catch (e) {
-        all.skipped.push({ name: shown(f), reason: text(e) });
+        all.skipped.push({ name: shown(f), reason: stopAdding.current ? "not added, because you pressed Cancel. Add it later in Sources" : text(e) });
       }
     }
+    setReading("");
     let planNote = "";
     if (kind !== "custom" && rev) {
       try {
@@ -272,6 +303,7 @@ export default function NewProject({ onOpen, onBack, restart, next, nextName, ta
         {restart && <><p className="muted">These are saved copies from the original project, including source roles and warnings. Removing one here only leaves it out of the fresh project.</p><SourceList sources={inherited} locked={false} busy={busy} onRemove={(id) => setInherited((sources) => sources.filter((source) => source.id !== id))} /></>}
         <p className="muted">{wantsFiles ? "Add reports, notes, or instructions for your crew to read and cite, such as the dates, prices and names it should use. You can add more later." : "Add any context that would help. You can also continue without files."}</p>
         <AddMaterial onPaths={addPaths} onFiles={addFiles} onUrls={addUrls} onPick={addResults} current={name} disabled={busy} mode={mode} onMode={setMode} />
+        {refused.length > 0 && <p className="notice warn" role="alert">{refused.map((r) => `${r}, so it was not added.`).join(" ")}</p>}
         <p className="added-count" role="status" aria-live="polite">{addedLine(staged.map((f) => ({ kind: f.kind, folder: f.kind === "path" && !!pathInfo[f.value]?.is_dir })))}</p>
         {staged.length > 0 && (
           <ul className="plain staged" aria-label="Files added">
@@ -335,8 +367,10 @@ export default function NewProject({ onOpen, onBack, restart, next, nextName, ta
           </div>
         )}
         <div className="composer-foot-row">
-          <span className="muted" role="status">{footLine}</span>
-          <button disabled={busy} onClick={onBack}>Cancel</button>
+          <span className="muted" role="status">{reading ? `Reading ${reading}…` : footLine}</span>
+          {reading
+            ? <button onClick={() => { stopAdding.current = true; void api.call("stop_reading").catch(() => undefined); }}>Cancel</button>
+            : <button disabled={busy} onClick={onBack}>Cancel</button>}
           <button className="primary" disabled={busy || !ready} onClick={() => void create()}>{busy ? "Creating" : restart ? "Start fresh project" : "Create project"} {!busy && ready && <kbd>⌘⏎</kbd>}</button>
         </div>
       </div>

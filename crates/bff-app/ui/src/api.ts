@@ -135,7 +135,7 @@ export type RunEvent =
   | { event: "started"; engine: string; what: string }
   | { event: "progress"; line: string }
   | { event: "finished"; ok: boolean; note: string };
-export type Info = { codex_found: boolean; swept_orphans: number; stress_mode?: boolean; built_at?: number | null; version?: string };
+export type Info = { stress_mode?: boolean; built_at?: number | null; version?: string };
 export type Tool = { name: "claude" | "codex"; path: string | null; version: string | null; chosen: string | null };
 export type Check = { name: string; status: "pass" | "warn" | "fail"; detail: string };
 export type ApiRoute = { route: string; state: "ready" | "no_key" | "not_configured"; address?: string | null; model?: string | null; has_key?: boolean };
@@ -210,7 +210,7 @@ const mockReview = (p: MockProject) => {
   return { version, finished, reviewed: finished && p.reviewed === version };
 };
 /** The preview's stand-in for the approval hash: 64 hex characters that change whenever the plan does. */
-const hashPlan = (p: Plan) => { let h = 2166136261; for (const ch of JSON.stringify(p)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } return h.toString(16).padStart(8, "0").repeat(8); };
+const hashPlan = (p: Plan) => { const text = JSON.stringify(p); let out = ""; for (let k = 0; k < 8; k++) { let h = (2166136261 ^ Math.imul(k + 1, 2654435761)) >>> 0; for (const ch of text) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; } out += h.toString(16).padStart(8, "0"); } return out; };
 const MODELS: Record<string, string[]> = {
   R1: ["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna"],
   R2: ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"],
@@ -353,7 +353,7 @@ const OK_TYPES = ["txt", "md", "csv", "json", "pdf", "doc", "docx", "xls", "xlsx
 function mockAddSource(name: string, bytes: number): Added {
   const p = mock.projects[mock.current];
   const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
-  if (!OK_TYPES.includes(ext)) return { added: [], skipped: [{ name, reason: `${name}: .${ext} is not a type BFF can read yet. Use txt, md, csv, json, pdf, doc, docx, xls, xlsx, ppt, pptx, html, or a picture (png, jpg, tiff, heic, gif, bmp, webp)` }] };
+  if (!OK_TYPES.includes(ext)) return { added: [], skipped: [{ name, reason: `${name}: .${ext} is not a type SproutCrew can read yet. Use txt, md, csv, json, pdf, doc, docx, xls, xlsx, ppt, pptx, html, or a picture (png, jpg, tiff, heic, gif, bmp, webp)` }] };
   const have = p.sources.find((x) => x.name === name && x.bytes === bytes);
   const src = have ?? { id: nextSourceId(p.sources), name, bytes, pages: 1, flags: [], suspicious: /inject|ignore/i.test(name) ? ["tells the AI to ignore or replace its instructions"] : [], origin: "" };
   if (!have) p.sources.push(src);
@@ -403,7 +403,7 @@ function mockState(engine: string): State {
     code_files: p.artifacts.some((x) => x.name === "build") ? [{ path: "README.md", bytes: 4757 }, { path: "app.js", bytes: 16561 }, { path: "index.html", bytes: 2723 }] : [],
     app: p.artifacts.some((x) => x.name === "build") ? { page: true, opens: true, why: null } : { page: false, opens: false, why: null },
     links: { from: (p.links ?? []).filter((n) => mock.projects[n] && !mock.projects[n].archived), to: Object.keys(mock.projects).filter((n) => !mock.projects[n].archived && mock.projects[n].links?.includes(mock.current)) },
-    approved_by: p.approvedHash ? "Preview user" : null, approval_hash: p.plan ? hashPlan(p.plan) : null, result_review: mockReview(p), artifacts: structuredClone(p.artifacts),
+    approved_by: p.approvedHash ? MOCK_APPROVER : null, approval_hash: p.plan ? hashPlan(p.plan) : null, result_review: mockReview(p), artifacts: structuredClone(p.artifacts),
     steps: p.artifacts.map((a) => ({ step: a.from_task, tokens: "unknown", plan_window: "unknown" })),
     meters: { tokens: n ? "905858" : "unknown", plan_window: n ? "claude 27%, codex 2%" : "unknown", api_dollars: "unknown" }, engine,
     review: n ? p.review : {}, budget,
@@ -430,12 +430,16 @@ function mockState(engine: string): State {
 }
 
 /** What the check of what is missing asks in the preview: one answer found in a file, one not. */
-const MOCK_QUESTIONS: Question[] = [
+const FILM_PREVIEW = typeof location !== "undefined" && new URLSearchParams(location.search).has("film");
+const MOCK_QUESTIONS: Question[] = FILM_PREVIEW ? [
+  { ask: "What does a weekly box cost?", from: null, suggested: "$18 a week" },
+  { ask: "Which day is pickup?", from: null, suggested: "Friday, 7 am to 2 pm" },
+] : [
   { ask: "What does the dough class cost?", from: "pricing-notes.txt", suggested: "$45 a person" },
   { ask: "When does the next class start?", from: null, suggested: null },
 ];
 
-const MOCK_FLAGGED = ["\"Starting next month\" has no date in the brief. Say \"soon\".", "The address is not in the brief. Remove it.", "The price is not in any source. Cut it."];
+const MOCK_FLAGGED = FILM_PREVIEW ? ["The pickup hours come from your answer, not a file. Keep them only if they are right."] : ["\"Starting next month\" has no date in the brief. Say \"soon\".", "The address is not in the brief. Remove it.", "The price is not in any source. Cut it."];
 
 const SAMPLE_FINDINGS = [
   { id: "a", claim: "The monthly total should be $20, not $25.", evidence: "Line 4: 4 licenses at $5 each.", decision: null, reason: null },
@@ -445,10 +449,8 @@ const SAMPLE_FINDINGS = [
 async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> {
   const p = mock.projects[mock.current];
   switch (cmd) {
-    case "app_info": return { codex_found: false, swept_orphans: 0, built_at: null, version: "2.0.0" } as T;
+    case "app_info": return { built_at: null, version: "2.2.3" } as T;
     case "open_link": return undefined as T;
-    case "check_update": return { available: false, set_up: true } as T;
-    case "install_update": throw "SproutCrew is up to date";
     case "list_projects": return Object.keys(mock.projects).filter((n) => !mock.projects[n].archived).sort() as T;
     case "archive_project":
       if (!mock.projects[a.name as string]) throw "no such project";
@@ -562,7 +564,11 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
         if (max !== null) max += (m.input_per_mtok * 60000 + m.output_per_mtok * 8000) / 1e6;
       }
       const left = 8;
-      return { steps: stages.length, models, free_requests: free, free_remaining: free ? left : null, free_short: free > left, estimated_usd: max === null ? null : max * 0.4, max_usd: max } as T;
+      // Each step holds a quarter of its 60,000 input tokens and all 8,000 output tokens against the token cap.
+      // Opened with ?tokencap, the preview has 12,000 tokens left, so even a one-step plan shows the warning.
+      const tokens = stages.length * (60000 / 4 + 8000);
+      const tokensLeft = new URLSearchParams(window.location.search).has("tokencap") ? 12000 : 500000;
+      return { steps: stages.length, models, free_requests: free, free_remaining: free ? left : null, free_short: free > left, estimated_usd: max === null ? null : max * 0.4, max_usd: max, estimated_tokens: tokens, tokens_left: tokensLeft, tokens_short: tokens > tokensLeft } as T;
     }
     case "write_stress_report": return undefined as T;
     case "set_presentation": mock.presentation = a.on as boolean; return undefined as T;
@@ -633,7 +639,7 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
       return changed as T;
     }
     case "usage_everywhere": return { projects: Object.entries(mock.projects).map(([name, x]) => ({ project: name, rows: mockUsage(x.artifacts.length, x.plan) })), unreadable: [] } as T;
-    case "set_project_limit": case "raise_project_limit": {
+    case "set_project_limit": {
       const d = a.dollars as number;
       if (!Number.isFinite(d) || d <= 0) throw "Enter an amount in dollars, like 0.50.";
       const floor = p.artifacts.length ? 0.0118 : 0;
@@ -659,18 +665,9 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
           { name: "Export tools and disk", status: "warn", detail: "These checks require the native Mac app." },
         ],
       } as T;
-    case "tools":
-      return [
-        { name: "claude", path: "/Users/you/.local/bin/claude", version: "2.1.316 (Claude Code)", chosen: null },
-        { name: "codex", path: null, version: null, chosen: null },
-      ] as T;
-    case "choose_tool":
-      if (!String(a.path ?? "").trim()) return [{ name: "claude", path: "/Users/you/.local/bin/claude", version: "2.1.316 (Claude Code)", chosen: null }, { name: "codex", path: null, version: null, chosen: null }] as T;
-      if (!String(a.path).startsWith("/")) throw "Give the full path, starting with /";
-      return [{ name: "claude", path: "/Users/you/.local/bin/claude", version: "2.1.316 (Claude Code)", chosen: null }, { name: "codex", path: a.path, version: "codex-cli 0.166.0", chosen: a.path }] as T;
     case "attention_status":
       // The sample queue under ?board has seven items and one project it could not read, as the board shows.
-      return { enabled: false, count: new URLSearchParams(window.location.search).has("board") ? 7 : 0, errors: 0, last_error: null, open_inbox: false } as T;
+      return { enabled: false, count: FILM ? (await mockCall<{ items: unknown[] }>("decision_inbox", {})).items.length : new URLSearchParams(window.location.search).has("board") ? 7 : 0, errors: 0, last_error: null, open_inbox: false } as T;
     case "set_notifications":
     case "test_notification":
       throw "Mac notifications are available in the native app; this is a browser preview.";
@@ -714,7 +711,7 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
       return undefined as T;
     case "decided_list": {
       // The preview's Decided: the approvals and reviews made in it, newest first. Under ?board, a sample.
-      if (new URLSearchParams(window.location.search).has("board")) {
+      if (new URLSearchParams(window.location.search).has("board") && !FILM) {
         const t = Math.floor(Date.now() / 1000);
         return { items: [
           { project: "larkspur-case-study", at: t - 1500, kind: "plan.approved", what: "Approved the plan", by: "Preview user", version: "4be077c1" },
@@ -723,14 +720,14 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
         ], errors: [] } as T;
       }
       const items = Object.entries(mock.projects).filter(([, pr]) => !pr.archived).flatMap(([name, pr]) => [
-        ...(pr.approvedHash ? [{ project: name, at: Math.floor(Date.now() / 1000) - 60, kind: "plan.approved", what: "Approved the plan", by: "Preview user", version: pr.approvedHash }] : []),
-        ...(pr.reviewed ? [{ project: name, at: Math.floor(Date.now() / 1000), kind: "result.reviewed", what: "Marked the results reviewed", by: "Preview user", version: pr.reviewed }] : []),
+        ...(pr.approvedHash ? [{ project: name, at: Math.floor(Date.now() / 1000) - 60, kind: "plan.approved", what: "Approved the plan", by: MOCK_APPROVER, version: pr.approvedHash }] : []),
+        ...(pr.reviewed ? [{ project: name, at: Math.floor(Date.now() / 1000), kind: "result.reviewed", what: "Marked the results reviewed", by: MOCK_APPROVER, version: pr.reviewed }] : []),
       ]).sort((x, y) => y.at - x.at);
       return { items, errors: [] } as T;
     }
     case "decision_inbox": {
       // Opened with ?board, the preview seeds sample projects and lists what waits in them, so each decision can be made.
-      if (!new URLSearchParams(window.location.search).has("board")) return { items: [], errors: [] } as T;
+      if (!new URLSearchParams(window.location.search).has("board") && !FILM) return { items: [], errors: [] } as T;
       await seedBoard();
       const items: unknown[] = [];
       for (const [name, pr] of Object.entries(mock.projects)) {
@@ -739,10 +736,12 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
         const approved = !!pr.approvedHash && pr.approvedHash === hashPlan(pr.plan);
         if (!approved && done < pr.plan.stages.length) items.push({ project: name, stage: pr.plan.stages[0].id, id: "plan", tier: "consequential", kind: "plan", title: "Review and approve the current plan and permissions", anchor: "plan-approval", step_title: "" });
         for (const [st, [why]] of Object.entries(pr.failures ?? {})) items.push({ project: name, stage: st, id: `failed-${st}`, tier: "consequential", kind: "failure", title: `A step stopped: ${why}`, anchor: `step-${st}`, step_title: pr.plan.stages.find((x) => x.id === st)?.title ?? "" });
+        if (Object.values(pr.blocked ?? {}).includes(WAITING)) items.push({ project: name, stage: "facts", id: "questions", tier: "consequential", kind: "questions", title: `Answer ${MOCK_QUESTIONS.length} questions only you can answer`, anchor: "questions", step_title: "Check what's missing" });
         if (pr.stopped && approved) items.push({ project: name, stage: "", id: "stopped", tier: "reversible", kind: "stopped", title: `Stopped by you after step ${done} of ${pr.plan.stages.length}`, anchor: "run-status", step_title: "" });
         for (const [art, r] of Object.entries(pr.review)) for (const f of r.findings.filter((x) => !x.decision)) items.push({ project: name, stage: art, id: `${art}:${f.id}`, tier: "reversible", kind: "finding", title: f.claim, anchor: `finding-${art}-${f.id}`, step_title: "" });
         if (done === pr.plan.stages.length && pr.plan.stages.length > 0 && !mockReview(pr).reviewed) items.push({ project: name, stage: "", id: "finished", tier: "reversible", kind: "finished", title: "Review the finished work", anchor: "final-files", step_title: "" });
       }
+      if (FILM) return { items, errors: [] } as T;
       items.push({ project: "tide-chart-app", stage: "build", id: "build-1", tier: "destructive", kind: "code", title: "Review code diff (pending)", anchor: "code-build-1", step_title: "Build the chart" });
       return { items, errors: [{ project: "old-pitch-deck", error: "its journal could not be read" }] } as T;
     }
@@ -776,9 +775,9 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
     case "path_info": // The browser has no disk to look at, so a name with a dot is a 12 KB file and any other is a folder.
       return (a.paths as string[]).map((v) => { const name = v.replace(/\/+$/, "").split("/").pop() ?? v; const folder = !name.includes("."); return { name, size: folder ? null : 12288, is_dir: folder }; }) as T;
     case "keynote_installed": return true as T;
+    case "work_running": return false as T;
     case "set_keynote": {
       if (!p.plan) throw ["there is no plan"];
-      if (a.on && !p.plan.stages.some((x) => x.id.includes("deck"))) throw ["This plan makes no slides, so there is no deck for Keynote to build."];
       p.plan = { ...p.plan, keynote: !!a.on || undefined };
       return undefined as T;
     }
@@ -900,7 +899,7 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
         return { added: [], skipped: [{ name: raw, reason: `"${host}" is not a public web site name, or is an address on a private network` }] } as T;
       }
       if (/docs\.google\.com/.test(host) && /private/.test(raw)) {
-        return { added: [], skipped: [{ name: raw, reason: "This Google document is not shared by link, so BFF cannot read it (BFF does not sign in). In Google, choose Share, set General access to Anyone with the link as Viewer, and add it again. Or download the document and add the file" }] } as T;
+        return { added: [], skipped: [{ name: raw, reason: "This Google document is not shared by link, so SproutCrew cannot read it (SproutCrew does not sign in). In Google, choose Share, set General access to Anyone with the link as Viewer, and add it again. Or download the document and add the file" }] } as T;
       }
       const url = `https://${host}/${raw.replace(/^https?:\/\/[^/]+\/?/i, "").split("#")[0]}`;
       const name = `${host.replace(/\./g, "-")}-page.md`;
@@ -1002,6 +1001,7 @@ async function mockCall<T>(cmd: string, a: Record<string, unknown>): Promise<T> 
       return undefined as T;
     }
     case "begin_run": case "end_run": return undefined as T;
+    case "stop_reading": return undefined as T;
     case "stop_run": { if (a.steps) mock.projects[mock.current].stopped = true; return undefined as T; }
     case "use_workflow": {
       const author = a.author as string[];
@@ -1074,6 +1074,10 @@ async function mockWave<T>(a: Record<string, unknown>, onEvent: (e: RunEvent) =>
   return rows as T;
 }
 
+/** ?film seeds a bakery's three projects for the trailer, and names the person who decides. */
+const FILM = typeof location !== "undefined" && new URLSearchParams(location.search).has("film");
+const MOCK_APPROVER = FILM ? "Maya Okafor" : "Preview user";
+
 /** The preview's policy defaults, which start as every project's policy until now. */
 let mockDefaults = { send_outside: "ask", delete_files: "ask", install_software: "ask", privacy: "standard" } as { send_outside: "ask" | "never"; delete_files: "ask" | "never"; install_software: "ask" | "never"; privacy: "standard" | "no_retention" };
 
@@ -1088,6 +1092,22 @@ function seedBoard(): Promise<void> {
       await mockRun("propose_plan", { engine: "live" }, quiet);
       return mock.projects[name];
     };
+    if (FILM) {
+      const flow = async (name: string, brief: string, kind: string) => {
+        await mockCall("create_project", { name, brief });
+        await mockCall("use_workflow", { name: kind, author: ["R12", "anthropic/claude-haiku-5.5", "medium"], reviewer: ["R12", "mistralai/mistral-small-2603", "high"] });
+        return mock.projects[name];
+      };
+      await flow("bread-subscription-article", "Write a 600-word article for the Harbor Lane Bakery website about our new weekly bread subscription: what's in the box, how pickup works, and how to sign up.", "writing");
+      const w = await flow("wholesale-pricing", "Research what three local cafes pay for wholesale sourdough, so we can price our wholesale list.", "research_brief");
+      w.approvedHash = hashPlan(w.plan!);
+      (w.failures ??= {})[w.plan!.stages[0].id] = ["the account is out of credit", "out_of_credits"];
+      const h = await flow("holiday-hours-posts", "Draft four short posts announcing our holiday opening hours.", "social_publishing");
+      h.approvedHash = hashPlan(h.plan!);
+      h.stopped = true;
+      mock.current = "";
+      return;
+    }
     await make("q3-roadmap-brief", "Write a Q3 roadmap brief for the leadership team from the planning notes.");
     const pr = await make("pricing-research", "Research how three competitors price their team plans.");
     pr.approvedHash = hashPlan(pr.plan!);

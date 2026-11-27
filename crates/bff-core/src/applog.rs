@@ -13,6 +13,18 @@ pub const FILE: &str = "app.log";
 pub const MAX_BYTES: u64 = 256 * 1024;
 const MAX_LINE: usize = 300;
 
+/// The one word a failed step is logged under: the app's cap or the project's limit that refused it, the kind of
+/// provider limit, or `other`. Only this word is logged, never the step's words.
+pub fn failure_kind(note: &str) -> &'static str {
+    if let Some(k) = crate::stop::cap_kind(note) {
+        k
+    } else if note.starts_with("paused:") && note.contains("spending limit") {
+        "project_limit"
+    } else {
+        crate::api_limits::kind_of(note).map_or("other", |k| k.word())
+    }
+}
+
 pub struct AppLog {
     dir: PathBuf,
     home: String,
@@ -114,6 +126,30 @@ mod tests {
         assert!(!l.contains("/Users/someone") && l.contains("~/x"), "{l}");
         assert!(!l.contains("a@b.com"), "{l}");
         assert!(!l.contains("0123456789abcdef0123456789abcdef"), "{l}");
+    }
+
+    #[test]
+    fn a_failed_step_is_logged_by_the_cap_or_limit_that_refused_it() {
+        // Q2-B9: a token-cap stop was logged only as "other".
+        assert_eq!(
+            failure_kind("stopped: the API token cap of 500,000 tokens is reached (1 used)"),
+            "token_cap"
+        );
+        assert_eq!(
+            failure_kind(
+                "stopped: AI work is on hold. The API token cap of 500,000 tokens is reached."
+            ),
+            "token_cap"
+        );
+        assert_eq!(
+            failure_kind("stopped: the API spending cap of $5.00 is reached"),
+            "spending_cap"
+        );
+        assert_eq!(
+            failure_kind("paused: this project has reached its spending limit of $5.00"),
+            "project_limit"
+        );
+        assert_eq!(failure_kind("something else"), "other");
     }
 
     #[test]

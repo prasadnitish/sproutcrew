@@ -56,7 +56,7 @@ impl<'a> Zip<'a> {
         let cd_size = u32_at(data, eocd + 12).ok_or_else(bad)?;
         let cd_at = u32_at(data, eocd + 16).ok_or_else(bad)?;
         if count == 0xFFFF || cd_size == 0xFFFF_FFFF || cd_at == 0xFFFF_FFFF {
-            return Err("this file uses zip64, which BFF does not read".into());
+            return Err("this file uses zip64, which SproutCrew does not read".into());
         }
         if count > MAX_ENTRIES {
             return Err("this file has too many parts to be an Office file".into());
@@ -106,7 +106,7 @@ impl<'a> Zip<'a> {
         };
         let bad = || INVALID.to_string();
         if e.flags & 1 != 0 {
-            return Err("this file is password protected, and BFF cannot open it".into());
+            return Err("this file is password protected, and SproutCrew cannot open it".into());
         }
         if e.size > MAX_PART {
             return Err(format!("{name} is too large to read"));
@@ -134,7 +134,7 @@ impl<'a> Zip<'a> {
             }
             m => {
                 return Err(format!(
-                    "{name} uses compression method {m}, which BFF does not read"
+                    "{name} uses compression method {m}, which SproutCrew does not read"
                 ))
             }
         }
@@ -858,20 +858,6 @@ pub fn template_parts(ext: &str, bytes: &[u8]) -> Result<TemplateParts, String> 
         }
     }
     Ok(TemplateParts { parts, logo })
-}
-
-/// The theme part of a .docx or .pptx file, or `None` when it has none.
-pub fn theme_xml(ext: &str, bytes: &[u8]) -> Result<Option<String>, String> {
-    let part = match ext {
-        "docx" => "word/theme/theme1.xml",
-        "pptx" => "ppt/theme/theme1.xml",
-        other => {
-            return Err(format!(
-                "a look can be taken only from a Word or PowerPoint file, not .{other}"
-            ))
-        }
-    };
-    Zip::open(bytes)?.text(part)
 }
 
 pub fn read(ext: &str, bytes: &[u8]) -> Result<Extracted, String> {

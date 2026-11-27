@@ -102,17 +102,63 @@ pub fn candidate_paths(home: &str) -> Vec<PathBuf> {
 
 pub use crate::tools::detect_in;
 
+/// The folders Typst is told to look in for fonts, besides the system's: the person's and the Mac's own font
+/// folders, and the fonts Microsoft Office carries inside its apps (Aptos, the default in new Office documents,
+/// is often only there). Typst skips a folder that does not exist.
+pub fn font_dirs(home: &str) -> Vec<PathBuf> {
+    let mut dirs = vec![];
+    if !home.is_empty() {
+        dirs.push(Path::new(home).join("Library/Fonts"));
+    }
+    dirs.push(PathBuf::from("/Library/Fonts"));
+    for app in ["Word", "PowerPoint", "Excel", "Outlook"] {
+        dirs.push(PathBuf::from(format!(
+            "/Applications/Microsoft {app}.app/Contents/Resources/DFonts"
+        )));
+    }
+    dirs
+}
+
+/// The font families Typst could not find, from its warnings, in lower case as it gives them, each once.
+pub fn unknown_fonts(stderr: &str) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for line in stderr.lines() {
+        if let Some(name) = line.trim().strip_prefix("warning: unknown font family: ") {
+            let name = name.trim().to_string();
+            if !name.is_empty() && !out.contains(&name) {
+                out.push(name);
+            }
+        }
+    }
+    out
+}
+
 /// Compiles Typst source to a PDF in `out`. `work` is an empty scratch folder this call owns.
 pub fn render(typst: &Path, source: &str, work: &Path, out: &Path) -> Result<(), String> {
+    render_noting(typst, source, work, out).map(|_| ())
+}
+
+/// As [`render`], and returns the font families Typst could not find. It sets the text in another font then.
+pub fn render_noting(
+    typst: &Path,
+    source: &str,
+    work: &Path,
+    out: &Path,
+) -> Result<Vec<String>, String> {
     std::fs::create_dir_all(work).map_err(|e| e.to_string())?;
     let input = work.join("doc.typ");
     std::fs::write(&input, source).map_err(|e| e.to_string())?;
-    let mut child = Command::new(typst)
-        .arg("compile")
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut cmd = Command::new(typst);
+    cmd.arg("compile")
         .arg("--root")
         .arg(work)
         .arg(&input)
-        .arg(out)
+        .arg(out);
+    for dir in font_dirs(&home).into_iter().filter(|d| d.is_dir()) {
+        cmd.arg("--font-path").arg(dir);
+    }
+    let mut child = cmd
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
         .env("TMPDIR", work)
@@ -134,28 +180,54 @@ pub fn render(typst: &Path, source: &str, work: &Path, out: &Path) -> Result<(),
             None => std::thread::sleep(Duration::from_millis(20)),
         }
     };
+    let mut err = String::new();
+    if let Some(mut e) = child.stderr.take() {
+        use std::io::Read;
+        let _ = e.read_to_string(&mut err);
+    }
     if !status.success() {
-        let mut err = String::new();
-        if let Some(mut e) = child.stderr.take() {
-            use std::io::Read;
-            let _ = e.read_to_string(&mut err);
-        }
         return Err(format!(
             "typst failed: {}",
-            err.lines().next().unwrap_or("no message")
+            err.lines()
+                .find(|l| l.starts_with("error"))
+                .or_else(|| err.lines().next())
+                .unwrap_or("no message")
         ));
     }
     let head = std::fs::read(out).map_err(|e| format!("typst wrote no file: {e}"))?;
     if !head.starts_with(b"%PDF") {
         return Err("typst's output is not a PDF".into());
     }
-    Ok(())
+    Ok(unknown_fonts(&err))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn the_fonts_typst_could_not_find_are_named_once_each() {
+        // QA Q2-B7: Typst set the template's Aptos in a serif font and said so only on stderr.
+        let err = "warning: unknown font family: aptos\n  ┌─ doc.typ:2:17\nwarning: unknown font family: aptos display\nwarning: unknown font family: aptos\n";
+        assert_eq!(
+            unknown_fonts(err),
+            vec!["aptos".to_string(), "aptos display".to_string()]
+        );
+        assert!(unknown_fonts("").is_empty());
+    }
+
+    #[test]
+    fn typst_also_looks_in_the_macs_font_folders_and_offices_own() {
+        let dirs = font_dirs("/Users/someone");
+        assert!(dirs
+            .iter()
+            .any(|d| d == Path::new("/Users/someone/Library/Fonts")));
+        assert!(dirs.iter().any(|d| d == Path::new("/Library/Fonts")));
+        assert!(dirs
+            .iter()
+            .any(|d| d.ends_with("Microsoft Word.app/Contents/Resources/DFonts")));
+    }
 
     fn fake(tag: &str, body: &str) -> (PathBuf, PathBuf) {
         let d = std::env::temp_dir().join(format!("bff-typst-{}-{tag}", std::process::id()));

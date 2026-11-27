@@ -225,7 +225,7 @@ fn public_v4(ip: Ipv4Addr) -> bool {
         || (a == 203 && b == 0 && c == 113))
 }
 
-const SHARING: &str = "This Google document is not shared by link, so BFF cannot read it (BFF does not sign in). In Google, choose Share, set General access to Anyone with the link as Viewer, and add it again. Or download the document and add the file";
+const SHARING: &str = "This Google document is not shared by link, so SproutCrew cannot read it (SproutCrew does not sign in). In Google, choose Share, set General access to Anyone with the link as Viewer, and add it again. Or download the document and add the file";
 
 fn slug(s: &str, max: usize) -> String {
     let mut out = String::new();
@@ -308,7 +308,7 @@ pub fn fetch_page(raw: &str, f: &mut dyn Fetch) -> Result<Page, String> {
     match got.status {
         200 => {}
         401 | 403 | 404 if on_google => return Err(SHARING.into()),
-        401 | 403 => return Err("The page asked for a sign-in or refused access. BFF does not sign in, so it can only read pages anyone can open".into()),
+        401 | 403 => return Err("The page asked for a sign-in or refused access. SproutCrew does not sign in, so it can only read pages anyone can open".into()),
         404 | 410 => return Err(format!("{url} was not found")),
         n => return Err(format!("{} answered with status {n}", host_of(&url))),
     }
@@ -370,7 +370,7 @@ pub fn fetch_page(raw: &str, f: &mut dyn Fetch) -> Result<Page, String> {
             } else {
                 other
             };
-            return Err(format!("{url} is {shown}, which BFF cannot read. It reads web pages, text, csv, json, and pdf"));
+            return Err(format!("{url} is {shown}, which SproutCrew cannot read. It reads web pages, text, csv, json, and pdf"));
         }
     };
     if bytes.iter().all(|b| b.is_ascii_whitespace()) {
@@ -484,7 +484,10 @@ impl Fetch for PublicWeb {
         let mut resp = self
             .agent
             .get(url)
-            .header("User-Agent", "BFF (reads one page a person asked for)")
+            .header(
+                "User-Agent",
+                "SproutCrew (reads one page a person asked for)",
+            )
             .header(
                 "Accept",
                 "text/html, text/plain, text/csv, application/json, application/pdf",

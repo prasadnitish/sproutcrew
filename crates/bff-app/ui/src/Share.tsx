@@ -23,7 +23,7 @@ function ExportBox({ ctx }: { ctx: Ctx }) {
   const reveal = (path: string) => api.call("reveal_export", { path }).catch((e) => setErr(text(e)));
   return (
     <section className="sheet">
-      <p className="muted">One folder with the final document, every step's result in order, your sources, and any code. It is scanned for secrets first, and one secret stops the export.</p>
+      <p className="muted">One folder with the final document, every step's result in order, your sources, and any code, saved in your Documents folder under SproutCrew and this project's name. It is scanned for secrets first, and one secret stops the export.</p>
       <div className="actions">
         <button disabled={!!ctx.busy || ctx.s.artifacts.length === 0} onClick={() => ctx.guard(async () => {
           try { setOut(await api.call<Exported>("export_package", { runInstructions: notes })); setErr(""); } catch (e) { setOut(null); setErr(text(e)); throw e; }
@@ -303,7 +303,7 @@ function ClientForm({ ctx }: { ctx: Ctx }) {
   if (steps.length === 0) return <p className="empty-note">Run the steps first. The files are made from their results.</p>;
   return (
     <>
-      <p className="muted lead">Makes a Word document and a PDF of it, a PowerPoint deck, and an Excel file of the document's tables, ready to hand over. A section for the team (Source warnings) is left out. The files are saved in your Documents folder, under SproutCrew and this project's name, and nothing there is replaced.</p>
+      <p className="muted lead">Makes a Word document and a PDF of it, a PowerPoint deck, and, when the document has tables, an Excel file of them, ready to hand over. A section for the team (Source warnings) is left out. The files are saved in your Documents folder, under SproutCrew and this project's name, and nothing there is replaced.</p>
       <LookChoice ctx={ctx} />
       <SaveToFolder ctx={ctx} steps={steps} />
       {pick(doc, setDoc, "Which result is the document?", "None")}

@@ -241,7 +241,7 @@ fn read_scanned_pages(
             ("pages", "have")
         };
         flags.push(format!(
-            "{noun} {} {verb} no text of their own and {} not read, because BFF reads at most {} scanned pages in a file. View the original",
+            "{noun} {} {verb} no text of their own and {} not read, because SproutCrew reads at most {} scanned pages in a file. View the original",
             page_list(rest),
             if rest.len() == 1 { "was" } else { "were" },
             crate::ocr::MAX_PAGES
@@ -320,7 +320,7 @@ pub fn prepare(
             let text = crate::ocr::image(bytes, e).map_err(ImportError::Unreadable)?;
             (
                 vec![text],
-                vec!["The words were read from the picture by character recognition, which can make mistakes. BFF reads only the words in a picture, not what it shows".into()],
+                vec!["The words were read from the picture by character recognition, which can make mistakes. SproutCrew reads only the words in a picture, not what it shows".into()],
             )
         }
         "html" | "htm" => {

@@ -22,3 +22,13 @@ export function addedLine(items: { kind: "path" | "url" | "file" | "results"; fo
   if (!parts.length) return "";
   return `${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0]} added`;
 }
+
+/** The most a source file may weigh, as the app checks it when the project is made (`sources::MAX_BYTES`). */
+export const SOURCE_LIMIT = 25 * 1024 * 1024;
+
+/** Why a file is refused for its size, in the words the app uses when the project is made, or null when it fits.
+ *  A folder (no size) is checked file by file later. */
+export function tooBig(name: string, size: number | null): string | null {
+  if (size == null || size <= SOURCE_LIMIT) return null;
+  return `${name} is ${Math.floor(size / (1024 * 1024))} MB and the limit is ${SOURCE_LIMIT / (1024 * 1024)} MB`;
+}

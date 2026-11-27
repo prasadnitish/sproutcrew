@@ -7,8 +7,35 @@
 use crate::helper;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Once, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// Set when the person presses Cancel or quits: every read in progress is ended at once and none starts.
+static STOP: AtomicBool = AtomicBool::new(false);
+/// Set once the reader's text model is ready.
+static WARM: AtomicBool = AtomicBool::new(false);
+/// How long a read waits for the text model to be ready before it starts anyway. The read then gets the model
+/// ready itself within its own time limit. QA Q2-B1: an unbounded wait here made Create project hang.
+const WARM_WAIT: Duration = Duration::from_secs(45);
+
+/// Ends every read in progress and refuses new ones, until [`allow_reading`].
+pub fn stop_reading() {
+    STOP.store(true, Ordering::SeqCst);
+}
+
+/// Lets reads run again, for the next file the person adds.
+pub fn allow_reading() {
+    STOP.store(false, Ordering::SeqCst);
+}
+
+fn stopped() -> Result<(), String> {
+    if STOP.load(Ordering::SeqCst) {
+        Err("reading was stopped".into())
+    } else {
+        Ok(())
+    }
+}
 
 static PROGRAM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/bff-ocr"));
 
@@ -33,14 +60,22 @@ fn program() -> Result<&'static Path, String> {
 }
 
 /// The first time a new copy of the program reads anything, macOS spends about half a minute getting its text
-/// model ready. This does that once per run of BFF. Every read waits for it, so none is cut short by it.
+/// model ready. This starts that once per run of SproutCrew, in the background, and waits for it at most
+/// [`WARM_WAIT`], or until a stop request.
 fn warm() {
-    static WARMED: Once = Once::new();
-    WARMED.call_once(|| {
-        if let Ok(path) = program() {
-            let _ = helper::run(path, &["warm"], Duration::from_secs(300), 4096);
-        }
+    static STARTED: Once = Once::new();
+    STARTED.call_once(|| {
+        std::thread::spawn(|| {
+            if let Ok(path) = program() {
+                let _ = helper::run(path, &["warm"], Duration::from_secs(120), 4096);
+            }
+            WARM.store(true, Ordering::SeqCst);
+        });
     });
+    let until = Instant::now() + WARM_WAIT;
+    while !WARM.load(Ordering::SeqCst) && !STOP.load(Ordering::SeqCst) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// Starts getting the reader ready in the background, so the first picture or scan is not slow.
@@ -53,7 +88,7 @@ pub fn warm_up() {
 /// Puts the carried program in the private folder, under a name that holds its hash.
 fn install() -> Result<PathBuf, String> {
     if PROGRAM.is_empty() {
-        return Err("this build of BFF cannot read text from pictures. It needs macOS and Xcode's command line tools when BFF is built".into());
+        return Err("this build of SproutCrew cannot read text from pictures. It needs macOS and Xcode's command line tools when SproutCrew is built".into());
     }
     let dir = helper::private_dir()?;
     let hash = format!("{:x}", Sha256::digest(PROGRAM));
@@ -99,13 +134,18 @@ fn parse(stdout: &[u8]) -> (Vec<(usize, String)>, Option<String>) {
 pub fn image(bytes: &[u8], ext: &str) -> Result<String, String> {
     let program = program()?;
     warm();
+    stopped()?;
     let file = helper::TempFile::create(ext, bytes)?;
-    let out = helper::run(
+    let out = helper::run_until(
         program,
         &["image".as_ref(), file.path().as_os_str()],
         Duration::from_secs(90),
         MAX_OUT,
+        Some(&STOP),
     )?;
+    if out.stopped {
+        return Err("reading was stopped".into());
+    }
     let (pages, error) = parse(&out.stdout);
     if out.timed_out {
         return Err("reading the picture took too long and was stopped".into());
@@ -131,6 +171,7 @@ pub fn pdf(bytes: &[u8], pages: &[usize]) -> Result<Scan, String> {
     }
     let program = program()?;
     warm();
+    stopped()?;
     let file = helper::TempFile::create("pdf", bytes)?;
     let list = pages
         .iter()
@@ -138,12 +179,16 @@ pub fn pdf(bytes: &[u8], pages: &[usize]) -> Result<Scan, String> {
         .collect::<Vec<_>>()
         .join(",");
     let limit = Duration::from_secs((30 + 6 * pages.len() as u64).min(420));
-    let out = helper::run(
+    let out = helper::run_until(
         program,
         &["pdf".as_ref(), file.path().as_os_str(), list.as_ref()],
         limit,
         MAX_OUT,
+        Some(&STOP),
     )?;
+    if out.stopped {
+        return Err("reading was stopped".into());
+    }
     let (read, error) = parse(&out.stdout);
     if let Some(e) = error {
         return Err(e);

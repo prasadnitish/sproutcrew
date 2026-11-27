@@ -32,3 +32,10 @@ test('a path shows its name and size, a folder says folder, and an unread path s
   assert.equal(pathLabel('~/gone.pdf', { name: 'gone.pdf', size: null, is_dir: false }), 'gone.pdf');
   assert.equal(pathLabel('~/Documents/claims.pdf', undefined), '~/Documents/claims.pdf');
 });
+
+test('a file over the 25 MB limit is refused when it is added, in the words the app uses at create', async () => {
+  const { tooBig } = await import('../src/addedFiles.ts');
+  assert.equal(tooBig('oversized.pdf', 27 * 1024 * 1024), 'oversized.pdf is 27 MB and the limit is 25 MB');
+  assert.equal(tooBig('fine.pdf', 25 * 1024 * 1024), null);
+  assert.equal(tooBig('folder', null), null);
+});

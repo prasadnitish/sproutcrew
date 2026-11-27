@@ -57,7 +57,7 @@ fn another_project_is_not_opened_while_a_step_is_in_flight() {
     running.fetch_add(1, Ordering::SeqCst);
     assert_eq!(
         app.open_project("two").unwrap_err(),
-        "Finishing the step that was running…"
+        "A step is still running. Try again when it finishes."
     );
     // The open project stays open, and opening it again does not mark its running step as failed.
     app.open_project("one").unwrap();
@@ -144,7 +144,7 @@ fn a_new_project_is_not_made_while_a_step_is_in_flight() {
     running.fetch_add(1, Ordering::SeqCst);
     assert_eq!(
         app.create_project("fresh", "A brief", 9).unwrap_err(),
-        "Finishing the step that was running…"
+        "A step is still running. Try again when it finishes."
     );
     assert!(!root.join("fresh").exists());
     assert_eq!(app.state("live").unwrap()["name"], "one");

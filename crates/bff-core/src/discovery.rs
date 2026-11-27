@@ -4,7 +4,6 @@
 //! live, and it never follows a symlink or writes. A selected skill is pinned by the hash of its file, so a
 //! later change is reported before the skill is used again.
 
-use crate::codex::mcp_server_names;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -311,6 +310,25 @@ impl Selection {
         }
         out
     }
+}
+
+/// Names from `[mcp_servers.<name>]` table headers. Values are never read.
+fn mcp_server_names(config_toml: &str) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for line in config_toml.lines() {
+        let Some(rest) = line.trim().strip_prefix("[mcp_servers.") else {
+            continue;
+        };
+        let name = if let Some(q) = rest.strip_prefix('"') {
+            q.split('"').next().unwrap_or_default()
+        } else {
+            rest.split(['.', ']']).next().unwrap_or_default()
+        };
+        if !name.is_empty() && !names.iter().any(|n| n == name) {
+            names.push(name.to_string());
+        }
+    }
+    names
 }
 
 #[cfg(test)]

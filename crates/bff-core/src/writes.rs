@@ -194,7 +194,7 @@ pub fn check_repo_path(p: &str) -> Result<(), String> {
             return bad("it must be relative, with no empty or .. parts");
         }
         if seg.eq_ignore_ascii_case(".git") || seg.eq_ignore_ascii_case(".github") {
-            return bad("it is inside .git or .github, which BFF does not write");
+            return bad("it is inside .git or .github, which SproutCrew does not write");
         }
     }
     Ok(())
@@ -684,7 +684,7 @@ impl Remote<'_> {
                 "application/vnd.github+json".to_string(),
             ),
             ("X-GitHub-Api-Version".to_string(), "2022-11-28".to_string()),
-            ("User-Agent".to_string(), "BFF".to_string()),
+            ("User-Agent".to_string(), "SproutCrew".to_string()),
         ];
         let api = format!("https://api.github.com/repos/{repo}");
         let missing = format!("The repository {repo} was not found or the key cannot see it");
@@ -725,7 +725,7 @@ impl Remote<'_> {
             _ => return Err(answer("GitHub", status, &made, &missing)),
         }
         for (i, (path, content)) in files.iter().enumerate() {
-            let put = json!({"message": format!("Add {path} (written by BFF)"), "content": base64(content.as_bytes()), "branch": branch});
+            let put = json!({"message": format!("Add {path} (written by SproutCrew)"), "content": base64(content.as_bytes()), "branch": branch});
             let (status, got) = self.call(
                 "PUT",
                 &format!("{api}/contents/{path}"),

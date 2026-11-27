@@ -100,6 +100,84 @@ fn is_warning_words(words: &str) -> bool {
     words.eq_ignore_ascii_case("source warnings")
         || words.eq_ignore_ascii_case("source warning")
         || words.eq_ignore_ascii_case(STILL_OPEN)
+        || words.eq_ignore_ascii_case("cross-reference warning")
+        || words.eq_ignore_ascii_case("cross-reference warnings")
+}
+
+/// Takes the run's boundary codes out of a line. Each run marks the blocks a step is shown with a 16-hex-digit code
+/// (`guard::boundary`), and a step citing its evidence may copy it: "(evidence from file 9f41e959a64876af, block
+/// "frame")". The code means nothing outside the run, so the citation goes, with its brackets and lead-in words. A
+/// bare 16-digit hex word goes too when it holds both a letter and a digit, as the codes do; a long plain number stays.
+fn drop_codes(line: &str) -> String {
+    let b = line.as_bytes();
+    let hex = |c: u8| c.is_ascii_digit() || (b'a'..=b'f').contains(&c);
+    let word = |c: u8| c.is_ascii_alphanumeric();
+    let (mut out, mut i, mut changed) = (String::new(), 0usize, false);
+    let mut copied = 0usize;
+    while i + 16 <= b.len() {
+        let token = &b[i..i + 16];
+        let bounded = (i == 0 || !word(b[i - 1])) && (i + 16 == b.len() || !word(b[i + 16]));
+        if !(bounded && token.iter().all(|&c| hex(c))) {
+            i += 1;
+            continue;
+        }
+        let (mut start, mut end) = (i, i + 16);
+        let before = |at: usize, w: &str| line[..at].to_ascii_lowercase().ends_with(w);
+        let mut cited = false;
+        for w in ["file ", "block ", "code "] {
+            if before(start, w) {
+                start -= w.len();
+                cited = true;
+                break;
+            }
+        }
+        if cited {
+            for w in ["from ", "evidence "] {
+                if before(start, w) {
+                    start -= w.len();
+                }
+            }
+        }
+        if line[end..].starts_with(", block \"") {
+            if let Some(close) = line[end + 9..].find('"') {
+                end += 9 + close + 1;
+            }
+        }
+        if start > 0 && b[start - 1] == b'(' && b.get(end) == Some(&b')') {
+            start -= 1;
+            end += 1;
+        }
+        let looks_like_code = token.iter().any(|c| c.is_ascii_digit())
+            && token.iter().any(|c| c.is_ascii_alphabetic());
+        if !(cited || looks_like_code) || start < copied {
+            i += 16;
+            continue;
+        }
+        out.push_str(&line[copied..start]);
+        copied = end;
+        i = end;
+        changed = true;
+    }
+    if !changed {
+        return line.to_string();
+    }
+    out.push_str(&line[copied..]);
+    let mut tidy = out;
+    for (from, to) in [
+        ("  ", " "),
+        (" .", "."),
+        (" ,", ","),
+        (" ;", ";"),
+        (" :", ":"),
+        ("( ", "("),
+        (" )", ")"),
+        ("()", ""),
+    ] {
+        while tidy.contains(from) {
+            tidy = tidy.replace(from, to);
+        }
+    }
+    tidy.trim_end().to_string()
 }
 
 /// What a skipped label block lasts until.
@@ -176,6 +254,26 @@ pub fn strip_internal(md: &str) -> (String, bool) {
             removed = true;
             continue;
         }
+        // A step that could not match the run's block codes may say so. That is about the run, not the work.
+        if !fenced
+            && plain_words(line)
+                .to_lowercase()
+                .starts_with("cross-reference warning")
+            && heading_level(line).is_none()
+        {
+            removed = true;
+            continue;
+        }
+        let coded;
+        let line = if fenced {
+            line
+        } else {
+            coded = drop_codes(line);
+            if coded != line {
+                removed = true;
+            }
+            coded.as_str()
+        };
         if !fenced {
             if let Some(until) = &labelled {
                 let ends = match until {
@@ -284,6 +382,42 @@ fn slug(s: &str) -> String {
         .join("-")
 }
 
+/// The font every Mac has, used in the PDF when the chosen one is not installed, so the text never falls back to
+/// Typst's own serif (QA Q2-B7).
+const PDF_FALLBACK_FONT: &str = "Helvetica Neue";
+
+/// A Typst font list: the chosen font, then [`PDF_FALLBACK_FONT`].
+fn pdf_fonts(font: &str) -> String {
+    let font = font.trim();
+    let list: Vec<&str> = if font.is_empty() || font.eq_ignore_ascii_case(PDF_FALLBACK_FONT) {
+        vec![PDF_FALLBACK_FONT]
+    } else {
+        vec![font, PDF_FALLBACK_FONT]
+    };
+    format!(
+        "({})",
+        list.iter()
+            .map(|f| serde_json::to_string(f).unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join(", ")
+            + ","
+    )
+}
+
+/// A note for each font of the look that the PDF could not use, named as the template names it.
+fn missing_font_notes(missing: &[String], look: &office_export::Look) -> Vec<String> {
+    let mut named: Vec<&str> = vec![look.font.as_str()];
+    if let Some(h) = &look.heading_font {
+        named.push(h.as_str());
+    }
+    named.dedup();
+    named
+        .into_iter()
+        .filter(|n| missing.iter().any(|m| m.eq_ignore_ascii_case(n.trim())))
+        .map(|n| format!("The PDF uses {PDF_FALLBACK_FONT} in place of {n}, which this Mac does not have. Install {n} and make the files again to use it. The Word file and the deck still name {n}, so they show it on a Mac that has it."))
+        .collect()
+}
+
 /// Writes the client files into a new folder `out_dir`, which must not exist. A tool that is missing, or a
 /// conversion that fails, is a note and not an error, so the other files are still made.
 pub fn make(
@@ -386,26 +520,26 @@ pub fn make(
                     _ => String::new(),
                 };
                 let heading_font = match &look.heading_font {
-                    Some(h) => format!(
-                        "#show heading: set text(font: {})\n",
-                        serde_json::to_string(h).map_err(|e| e.to_string())?
-                    ),
+                    Some(h) => format!("#show heading: set text(font: {})\n", pdf_fonts(h)),
                     None => String::new(),
                 };
                 let source = format!(
                     "#set page({size}{header}margin: {margin}, numbering: \"1\")\n#set text(font: {}, size: {}pt)\n{heading_font}#set par(justify: false, leading: 0.7em)\n#align(left)[#text(22pt, weight: \"bold\")[{}] \\\n#text(12pt, fill: gray)[{}]]\n#v(1em)\n{}",
-                    serde_json::to_string(&look.font).map_err(|e| e.to_string())?,
+                    pdf_fonts(&look.font),
                     look.body_pt.unwrap_or(10.5),
                     crate::typst::markdown_to_typst(&title).trim(),
                     crate::typst::markdown_to_typst(subtitle).trim(),
                     office_export::typst_body(&office_export::parse("", "", &body)?)
                 );
                 let out = out_dir.join(format!("{base}-document.pdf"));
-                match crate::typst::render(t, &source, &pdf_work, &out) {
-                    Ok(()) => made.push(Made {
-                        kind: "pdf",
-                        path: out,
-                    }),
+                match crate::typst::render_noting(t, &source, &pdf_work, &out) {
+                    Ok(missing) => {
+                        made.push(Made {
+                            kind: "pdf",
+                            path: out,
+                        });
+                        notes.extend(missing_font_notes(&missing, &look));
+                    }
                     Err(e) => notes.push(format!("The PDF was not made: {e}")),
                 }
             }
@@ -974,6 +1108,44 @@ mod tests {
         );
         assert!(out.contains("Body  more.") && out.contains("End."), "{out}");
         assert!(out.contains("<!-- keep this -->"), "{out}");
+    }
+
+    #[test]
+    fn the_pdf_falls_back_to_a_sans_font_and_names_a_font_it_could_not_use() {
+        assert_eq!(pdf_fonts("Aptos"), "(\"Aptos\", \"Helvetica Neue\",)");
+        assert_eq!(pdf_fonts("Helvetica Neue"), "(\"Helvetica Neue\",)");
+        let mut look = crate::look::checked("Aptos", "0F6CBD").unwrap();
+        look.heading_font = Some("Aptos Display".into());
+        let notes = missing_font_notes(&["aptos display".into()], &look);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].contains("in place of Aptos Display") && notes[0].contains("Helvetica Neue"),
+            "{notes:?}"
+        );
+        assert!(missing_font_notes(&[], &look).is_empty());
+    }
+
+    #[test]
+    fn the_runs_boundary_codes_and_cross_reference_notes_never_reach_the_client() {
+        // QA Q2-B4: a brainstorm memo cited the blocks it was shown by their boundary code.
+        let memo = "# Decision memo\n\nOpen on Sundays (evidence from file 9f41e959a64876af, block \"frame\").\n\nSales rose 12% (file 0a1b2c3d4e5f6a7b, block \"market\") in May.\n\n**Cross-reference warning:** the block codes in the options step do not match.\n\n## Cross-reference warnings\n\n- Code 9f41e959a64876af is not in this run.\n\n## Next steps\n\nAsk staff (from the customers step).\n\n```\nsha 9f41e959a64876af\n```\n";
+        let (clean, removed) = strip_internal(memo);
+        assert!(removed);
+        assert!(!clean.contains("9f41e959a64876af, block"), "{clean}");
+        assert!(!clean.contains("0a1b2c3d4e5f6a7b"), "{clean}");
+        assert!(!clean.to_lowercase().contains("cross-reference"), "{clean}");
+        assert!(clean.contains("Open on Sundays."), "{clean}");
+        assert!(clean.contains("Sales rose 12% in May."), "{clean}");
+        assert!(
+            clean.contains("## Next steps")
+                && clean.contains("Ask staff (from the customers step)."),
+            "{clean}"
+        );
+        // Code is left as it is.
+        assert!(clean.contains("sha 9f41e959a64876af"), "{clean}");
+        // A long number that is not hex-only words stays.
+        let (kept, _) = strip_internal("Order 1234567890123456 shipped.\n");
+        assert!(kept.contains("1234567890123456"), "{kept}");
     }
 
     #[test]

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, State } from "./api";
-import { costText, Estimate } from "./Preflight";
+import { costText, Estimate, tokenCapWarning } from "./Preflight";
 import { modelOf } from "./graph";
 import Questions from "./Questions";
 import { kindOf, primaryOf, riskWord, DecisionItem } from "./queue";
@@ -94,8 +94,9 @@ export default function BoardDecision({ item, onOpen, onDecided, back, queue, sh
             <Section title="What will run" value={`${plan.stages.length} ${plan.stages.length === 1 ? "step" : "steps"}`} open={!looser && !fresh}>
               <ol className="bd-steps">{plan.stages.map((st) => { const m = modelOf(plan.team, st); return <li key={st.id}><strong>{st.title}</strong> <span className="muted">{roleName(st.owner_role)}{m ? <> · <span className="mono">{m.model}</span></> : null}</span></li>; })}</ol>
             </Section>
-            <Section title="Cost" value={estimate ? (estimate.max_usd === null ? "unknown" : `at most $${estimate.max_usd.toFixed(2)}${s.project_limit ? ` of $${s.project_limit.cap.toFixed(2)}` : ""}`) : "reading"}>
+            <Section title="Cost" flag={estimate && tokenCapWarning(estimate) ? "Over the token cap" : undefined} tone="warn" open={!!estimate && !!tokenCapWarning(estimate)} value={estimate ? (estimate.max_usd === null ? "unknown" : `at most $${estimate.max_usd.toFixed(2)}${s.project_limit ? ` of $${s.project_limit.cap.toFixed(2)}` : ""}`) : "reading"}>
               <p>{estimate ? `This plan costs ${costText(estimate)}` : "Reading the prices."}{s.project_limit ? ` Paid models stop at $${s.project_limit.cap.toFixed(2)} for this project.` : ""}</p>
+              {estimate && tokenCapWarning(estimate) && <p className="notice warn" role="alert">{tokenCapWarning(estimate)}</p>}
             </Section>
             <Section title="What it reads" value={`${s.sources.length} ${s.sources.length === 1 ? "source" : "sources"}`} flag={fresh ? "New" : undefined} tone="info" open={fresh}>
               {s.sources.length ? <ul className="plain">{s.sources.map((x) => <li key={x.id}>{x.title || x.name}</li>)}</ul> : <p className="muted">No sources. The crew works from the brief.</p>}
@@ -196,7 +197,7 @@ export default function BoardDecision({ item, onOpen, onDecided, back, queue, sh
       </div>
       <div className={`bd-foot${approval ? " approval-foot" : ""}`}>
         {main && <button ref={primary} className="primary" disabled={!s || !!off} aria-describedby={off ? "bd-why" : undefined} onClick={main.run}>{main.label} {!off && <kbd>⌘⏎</kbd>}</button>}
-        {!main && <button className="primary" disabled aria-describedby="bd-why">{primaryOf(item.kind)}</button>}
+        {!main && item.kind !== "questions" && <button className="primary" disabled aria-describedby="bd-why">{primaryOf(item.kind)}</button>}
         {other}
         {main?.label !== `Open in ${item.project}` && <button className="quiet" onClick={() => onOpen(item)}>Open in {item.project} <kbd>O</kbd></button>}
         {(off || (!s && why)) && <p className="bd-why" id="bd-why">{off ?? why}</p>}

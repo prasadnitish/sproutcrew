@@ -68,13 +68,13 @@ function KeepChoice({ ctx, plan }: { ctx: Ctx; plan: Plan }) {
   );
 }
 
-/** Keynote building the deck: a permission of its own, shown only for a plan that makes slides on a Mac with
- *  Keynote. It changes the plan, so it is approved with it. */
+/** Keynote building the deck: a permission of its own, shown on a Mac with Keynote. Every plan ends in a deck, its
+ *  own or one made from the document. It changes the plan, so it is approved with it. */
 function KeynoteChoice({ ctx, plan }: { ctx: Ctx; plan: Plan }) {
   const [installed, setInstalled] = useState(false);
   const [why, setWhy] = useState<string[]>([]);
   useEffect(() => { api.call<boolean>("keynote_installed").then(setInstalled).catch(() => setInstalled(false)); }, []);
-  if (!installed || !plan.stages.some((st) => st.id.includes("deck"))) return null;
+  if (!installed) return null;
   const on = !!plan.keynote;
   const set = (v: boolean) => void ctx.guard(async () => {
     try { await api.call("set_keynote", { on: v }); setWhy([]); } catch (e) { setWhy(Array.isArray(e) ? e.map(String) : [String(e)]); }
